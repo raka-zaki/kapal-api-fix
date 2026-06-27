@@ -1,0 +1,1708 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Produksi HD</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+
+<style>
+    *, *::before, *::after {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
+    html, body {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        background: #020617;
+        color: white;
+    }
+
+    /* ============================================================
+       ROOT WRAPPER — satu kolom flex, fills the full viewport
+       ============================================================ */
+    #root {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        padding: 10px 16px 10px;
+        gap: 6px;
+    }
+
+    /* ============================================================
+       HEADER
+       ============================================================ */
+    #hdr {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-shrink: 0;
+        height: 52px;
+        border-bottom: 2px solid #1e293b;
+        padding-bottom: 6px;
+    }
+
+    #hdr .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    #hdr .logo-wrap {
+        background: white;
+        padding: 4px 10px;
+        border-radius: 8px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        border: 1px solid #e2e8f0;
+    }
+
+    #hdr .logo-wrap img {
+        height: 22px;
+        width: auto;
+        object-fit: contain;
+    }
+
+    #hdr h1 {
+        font-size: 1.05rem;
+        font-weight: 900;
+        color: #f1f5f9;
+        letter-spacing: 0.04em;
+        line-height: 1.2;
+    }
+
+    #hdr .subtitle {
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: #60a5fa;
+        letter-spacing: 0.15em;
+    }
+
+    #hdr .status-pill {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: #0f172a;
+        border: 1px solid #334155;
+        padding: 4px 12px;
+        border-radius: 8px;
+    }
+
+    #hdr .status-pill span { font-size: 0.7rem; font-weight: 700; color: #cbd5e1; letter-spacing: 0.08em; }
+    #hdr .status-pill .dot-green { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; animation: pulse 1.5s ease-in-out infinite; box-shadow: 0 0 8px #22c55e; }
+
+    #hdr .datetime-block {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    #hdr .date-chip {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #94a3b8;
+        background: #1e293b;
+        padding: 5px 14px;
+        border-radius: 8px;
+        border: 1px solid #334155;
+        white-space: nowrap;
+        letter-spacing: 0.02em;
+    }
+
+    #hdr .date-chip .day { color: #60a5fa; font-weight: 800; }
+
+    #clock {
+        font-family: 'Courier New', monospace;
+        font-size: 2rem;
+        font-weight: 900;
+        color: #fbbf24;
+        text-shadow: 0 0 12px rgba(251,191,36,0.35);
+        letter-spacing: 0.05em;
+    }
+
+    /* ============================================================
+       MARQUEE HIMBAUAN
+       ============================================================ */
+    #marquee-bar {
+        flex-shrink: 0;
+        height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(30, 41, 59, 0.45);
+        border: 1px solid rgba(96,165,250,0.25);
+        border-radius: 10px;
+        padding: 0 10px;
+    }
+
+    #marquee-bar .label-pill {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(96,165,250,0.15);
+        border-radius: 8px;
+        padding: 4px 10px;
+        white-space: nowrap;
+        flex-shrink: 0;
+        border: 1px solid rgba(96,165,250,0.2);
+    }
+
+    #marquee-bar .label-pill svg { width: 14px; height: 14px; color: #60a5fa; animation: pulse 1.5s ease-in-out infinite; }
+    #marquee-bar .label-pill p { font-size: 0.75rem; font-weight: 900; color: #60a5fa; text-transform: uppercase; letter-spacing: 0.12em; }
+
+    #marquee-bar marquee { font-size: 0.85rem; font-weight: 800; color: #fbbf24; letter-spacing: 0.08em; flex: 1; }
+
+    /* ============================================================
+       MAIN GRID — fills remaining space
+       ============================================================ */
+    #main {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        gap: 10px;
+    }
+
+    /* ============================================================
+       LEFT COLUMN
+       ============================================================ */
+    #left-col {
+        width: 52%;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-height: 0;
+    }
+
+    /* --- POSTER + PENGUMUMAN row --- */
+    #poster-announce {
+        display: flex;
+        gap: 8px;
+        flex: 6;
+        min-height: 0;
+    }
+
+    /* POSTER */
+    .poster-wrapper {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: #ffffff;
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    .panel-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 14px;
+        background: #1e293b;
+        border-bottom: 1px solid #334155;
+        flex-shrink: 0;
+    }
+
+    .panel-header .pulse-dot { width: 6px; height: 6px; border-radius: 50%; animation: pulse 1.5s ease-in-out infinite; }
+    .panel-header .title-label { font-size: 0.65rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
+    .panel-header .badge { font-size: 0.45rem; margin-left: auto; padding: 2px 10px; border-radius: 10px; font-weight: 700; }
+
+    .panel-header .pulse-dot.yellow { background: #f59e0b; }
+    .panel-header .title-label.yellow { color: #f59e0b; }
+    .panel-header .badge.gray { color: #64748b; background: #1e293b; border: 1px solid #334155; }
+
+    .slide-container {
+        flex: 1;
+        min-height: 0;
+        position: relative;
+        overflow: hidden;
+        background: #000;
+    }
+
+    .slides-track {
+        display: flex;
+        height: 100%;
+        transition: transform 0.5s ease-in-out;
+    }
+
+    .slide {
+        min-width: 100%;
+        height: 100%;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+        padding: 6px;
+    }
+
+    .slide img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        border-radius: 6px;
+        display: block;
+    }
+
+    .slide-empty {
+        color: #475569;
+        font-size: 0.75rem;
+        text-align: center;
+    }
+
+    .slide-empty svg { width: 40px; height: 40px; margin: 0 auto 6px; }
+
+    .indicators {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 0;
+        background: #0f172a;
+        border-top: 1px solid #1e293b;
+        min-height: 18px;
+        flex-shrink: 0;
+    }
+
+    .indicators .dot-ind {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: #334155; cursor: pointer; border: none; padding: 0;
+        transition: all 0.3s;
+    }
+
+    .indicators .dot-ind.active { background: #f59e0b; transform: scale(1.25); }
+
+    /* ANNOUNCEMENT */
+    .announcement-wrapper {
+        flex: 1.3;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: linear-gradient(145deg, #0f172a, #1a2332);
+        border: 2px solid #fbbf24;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 0 30px rgba(251,191,36,0.08);
+    }
+
+    .announcement-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 14px;
+        background: linear-gradient(90deg, #1e293b, #0f172a);
+        border-bottom: 2px solid #fbbf24;
+        flex-shrink: 0;
+    }
+
+    .announcement-header .megaphone { font-size: 1rem; animation: pulse 1.5s ease-in-out infinite; }
+    .announcement-header .lbl { font-size: 0.7rem; font-weight: 800; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.12em; }
+    .announcement-header .badge-live { font-size: 0.45rem; color: #34d399; background: rgba(52,211,153,0.15); padding: 2px 10px; border-radius: 10px; border: 1px solid rgba(52,211,153,0.25); animation: pulse 1.5s ease-in-out infinite; margin-left: auto; }
+
+    .announcement-body {
+        flex: 1;
+        min-height: 0;
+        padding: 14px 18px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        overflow-y: auto;
+    }
+
+    .ann-title { font-size: 1.6rem; font-weight: 900; color: #fbbf24; text-shadow: 0 0 20px rgba(251,191,36,0.2); margin-bottom: 4px; line-height: 1.2; }
+    .ann-sub { font-size: 0.8rem; font-weight: 700; color: #60a5fa; margin-bottom: 8px; }
+    .ann-text { font-size: 0.75rem; color: #e2e8f0; line-height: 1.7; white-space: pre-wrap; flex: 1; }
+    .ann-text .hl { color: #fbbf24; font-weight: 700; }
+    .ann-text .hl-red { color: #f87171; font-weight: 700; }
+    .ann-text .hl-green { color: #34d399; font-weight: 700; }
+
+    .announcement-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 14px;
+        background: #1e293b;
+        border-top: 1px solid #334155;
+        flex-shrink: 0;
+    }
+
+    .announcement-footer .upd { font-size: 0.45rem; color: #64748b; }
+    .announcement-footer .imp { font-size: 0.4rem; color: #f87171; background: rgba(239,68,68,0.15); padding: 2px 8px; border-radius: 8px; border: 1px solid rgba(239,68,68,0.2); }
+
+    /* --- CHART --- */
+    #chart-card {
+        flex: 3.5;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        padding: 8px 14px 10px;
+    }
+
+    #chart-card .chart-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+        margin-bottom: 4px;
+    }
+
+    #chart-card .chart-header .dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+    #chart-card .chart-header .lbl { font-size: 0.9rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; }
+    #chart-card .chart-header .badge { font-size: 0.45rem; color: #64748b; background: #1e293b; padding: 1px 8px; border-radius: 8px; margin-left: auto; }
+
+    #chart-canvas-wrap {
+        flex: 1;
+        min-height: 0;
+        position: relative;
+    }
+
+    /* ============================================================
+       RIGHT COLUMN
+       ============================================================ */
+    #right-col {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-height: 0;
+    }
+
+    /* RUNNING STRIP */
+    #running-strip {
+        flex-shrink: 0;
+        height: 72px;
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        padding: 6px 12px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    #running-strip .run-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+        margin-bottom: 4px;
+    }
+
+    #running-strip .run-header .dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; animation: pulse 1.5s ease-in-out infinite; }
+    #running-strip .run-header .lbl { font-size: 0.6rem; font-weight: 800; color: #60a5fa; text-transform: uppercase; letter-spacing: 0.1em; }
+    #running-strip .run-header .badge { font-size: 0.45rem; color: #34d399; background: rgba(52,211,153,0.15); padding: 1px 8px; border-radius: 8px; border: 1px solid rgba(52,211,153,0.25); margin-left: auto; }
+
+    .running-track { overflow: hidden; white-space: nowrap; flex: 1; display: flex; align-items: center; }
+    .running-items { display: inline-flex; gap: 20px; animation: scrollCards 22s linear infinite; }
+    .running-items:hover { animation-play-state: paused; }
+
+    .ri {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: #1e293b;
+        padding: 5px 18px 5px 12px;
+        border-radius: 8px;
+        border-left: 3px solid #34d399;
+        flex-shrink: 0;
+    }
+
+    .ri .icon { font-size: 0.85rem; }
+    .ri .name { font-size: 0.7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.06em; }
+    .ri .val { font-size: 1.15rem; font-weight: 900; color: #34d399; font-family: monospace; }
+    .ri .tgt { font-size: 0.55rem; color: #64748b; }
+    .ri .diff { font-size: 0.6rem; font-weight: 800; padding: 2px 8px; border-radius: 4px; }
+    .ri .diff.pos { color: #34d399; background: rgba(52,211,153,0.15); }
+    .ri .diff.neg { color: #f87171; background: rgba(248,113,113,0.15); }
+    .ri .diff.neu { color: #94a3b8; background: rgba(148,163,184,0.15); }
+
+    @keyframes scrollCards {
+        0% { transform: translateX(0); }
+        100% { transform: translateX(-50%); }
+    }
+
+    /* VIDEO */
+    #video-card {
+        flex: 5;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    .video-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 14px;
+        background: #1e293b;
+        border-bottom: 1px solid #334155;
+        flex-shrink: 0;
+    }
+
+    .video-header .dot { width: 6px; height: 6px; border-radius: 50%; background: #ef4444; animation: pulse 1.5s ease-in-out infinite; }
+    .video-header .lbl { font-size: 0.65rem; font-weight: 800; color: #f87171; text-transform: uppercase; letter-spacing: 0.08em; }
+    .video-header .badge-red { font-size: 0.45rem; color: #ef4444; background: rgba(239,68,68,0.15); padding: 2px 8px; border-radius: 8px; border: 1px solid rgba(239,68,68,0.2); animation: pulse 1.5s ease-in-out infinite; margin-left: auto; }
+
+    #videoSlideContainer {
+        flex: 1;
+        min-height: 0;
+        position: relative;
+        overflow: hidden;
+        background: #000;
+    }
+
+    #videoSlides {
+        display: flex;
+        height: 100%;
+        transition: transform 0.5s ease-in-out;
+    }
+
+    .video-slide {
+        min-width: 100%;
+        height: 100%;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+        position: relative;
+    }
+
+    .video-slide video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #1e293b;
+        display: block;
+    }
+
+    .video-slide .vid-label {
+        position: absolute;
+        bottom: 6px;
+        right: 8px;
+        font-size: 0.5rem;
+        color: rgba(255,255,255,0.4);
+        background: rgba(0,0,0,0.6);
+        padding: 2px 8px;
+        border-radius: 4px;
+        pointer-events: none;
+    }
+
+    #videoIndicators .dot-ind.active { background: #ef4444; }
+
+    /* SCHEDULE */
+    #schedule-card {
+        flex: 3;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        padding: 10px 16px;
+        overflow: hidden;
+    }
+
+    .schedule-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        flex-shrink: 0;
+    }
+
+    .schedule-head .lbl {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.7rem;
+        font-weight: 800;
+        color: #60a5fa;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .schedule-head .lbl svg { width: 16px; height: 16px; }
+    .schedule-head .date-badge { font-size: 0.6rem; background: #1e293b; padding: 3px 12px; border-radius: 8px; color: #94a3b8; border: 1px solid #334155; white-space: nowrap; }
+
+    .schedule-list { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: space-evenly; }
+
+    .sched-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 7px 0;
+        border-bottom: 1px solid #1e293b;
+    }
+
+    .sched-item:last-child { border-bottom: none; }
+    .sched-item .date-lbl { font-size: 0.7rem; font-weight: 700; color: #f59e0b; font-family: monospace; min-width: 96px; flex-shrink: 0; }
+    .sched-item .activity { flex: 1; font-size: 0.75rem; color: #e2e8f0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sched-item .status-pill { font-size: 0.55rem; font-weight: 800; text-transform: uppercase; padding: 3px 12px; border-radius: 8px; flex-shrink: 0; }
+    .sched-item .status-pill.ongoing { background: #065f46; color: #34d399; }
+    .sched-item .status-pill.upcoming { background: #1e3a5f; color: #60a5fa; }
+    .sched-item .status-pill.done { background: #1e293b; color: #64748b; }
+
+    /* ============================================================
+       EDIT PANEL
+       ============================================================ */
+    .edit-btn-nav {
+        background: #1e293b;
+        border: 1px solid #3b82f6;
+        color: #3b82f6;
+        padding: 4px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 700;
+        font-size: 0.6rem;
+        transition: all 0.3s;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .edit-btn-nav:hover { background: #3b82f6; color: white; transform: scale(1.05); }
+
+    .edit-panel {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.85);
+        backdrop-filter: blur(8px);
+        z-index: 10000;
+        display: none;
+        justify-content: center;
+        align-items: center;
+        padding: 15px;
+    }
+
+    .edit-panel.active { display: flex; }
+
+    .edit-panel-content {
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 16px;
+        padding: 18px 20px;
+        max-width: 640px;
+        width: 100%;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 0 60px rgba(0,0,0,0.8);
+    }
+
+    .edit-panel-content h2 { color: #3b82f6; font-size: 1.1rem; font-weight: 800; margin-bottom: 4px; text-align: center; }
+    .edit-panel-content .sub-title { color: #94a3b8; font-size: 0.6rem; text-align: center; margin-bottom: 10px; }
+
+    .legend-row { display: flex; gap: 12px; justify-content: center; margin-bottom: 10px; flex-wrap: wrap; }
+    .legend-item { display: flex; align-items: center; gap: 4px; font-size: 0.55rem; color: #94a3b8; }
+    .legend-item .cb { width: 11px; height: 11px; border-radius: 3px; }
+    .cb.green { background: #34d399; } .cb.blue { background: #60a5fa; } .cb.gray { background: #64748b; }
+
+    .edit-group {
+        margin-bottom: 8px;
+        background: #1e293b;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #334155;
+    }
+
+    .edit-group .group-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        color: #94a3b8;
+        font-size: 0.6rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 6px;
+    }
+
+    .edit-row { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+    .fw { display: flex; flex-direction: column; flex: 1; min-width: 60px; }
+    .fw label { font-size: 0.5rem; color: #64748b; margin-bottom: 1px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+
+    .edit-row input,
+    .edit-row select,
+    .edit-row textarea {
+        padding: 4px 8px;
+        border-radius: 5px;
+        border: 1px solid #334155;
+        background: #0f172a;
+        color: white;
+        font-size: 0.8rem;
+        outline: none;
+        width: 100%;
+        transition: border-color 0.3s;
+        font-family: inherit;
+    }
+
+    .edit-row input:focus,
+    .edit-row select:focus,
+    .edit-row textarea:focus { border-color: #3b82f6; }
+    .edit-row textarea { resize: vertical; min-height: 60px; }
+    .edit-row input[type="number"] { width: 75px; flex: none; }
+    .edit-row input[type="file"] { flex: 1; padding: 3px; font-size: 0.7rem; }
+
+    .diff-display {
+        display: inline-block;
+        font-size: 0.75rem;
+        font-weight: 800;
+        padding: 3px 10px;
+        border-radius: 6px;
+        min-width: 70px;
+        text-align: center;
+    }
+
+    .diff-display.positive { color: #34d399; background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.25); }
+    .diff-display.negative { color: #f87171; background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.25); }
+    .diff-display.neutral  { color: #94a3b8; background: rgba(148,163,184,0.1); border: 1px solid rgba(148,163,184,0.25); }
+
+    .btn-save {
+        width: 100%; padding: 8px; background: #3b82f6; color: white; border: none; border-radius: 8px;
+        font-size: 0.9rem; font-weight: 800; cursor: pointer; transition: all 0.3s; margin-top: 8px;
+    }
+    .btn-save:hover { background: #2563eb; transform: scale(1.02); }
+
+    .btn-close {
+        width: 100%; padding: 6px; background: #1e293b; color: #94a3b8; border: 1px solid #334155;
+        border-radius: 8px; font-size: 0.8rem; cursor: pointer; transition: all 0.3s; margin-top: 5px;
+    }
+    .btn-close:hover { background: #334155; color: white; }
+
+    .btn-add-file {
+        padding: 3px 12px; background: #3b82f6; color: white; border: none; border-radius: 4px;
+        font-size: 0.6rem; cursor: pointer; font-weight: 700; transition: all 0.3s;
+    }
+    .btn-add-file:hover { background: #2563eb; transform: scale(1.05); }
+
+    .btn-remove-file {
+        padding: 2px 8px; background: #ef4444; color: white; border: none; border-radius: 4px;
+        font-size: 0.5rem; cursor: pointer; font-weight: 700; transition: all 0.3s;
+    }
+    .btn-remove-file:hover { background: #dc2626; transform: scale(1.05); }
+
+    .file-upload-row { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+    .file-upload-row input[type="file"] { flex: 1; padding: 3px; font-size: 0.7rem; background: #0f172a; border: 1px solid #334155; border-radius: 4px; color: white; }
+    .file-upload-row .file-label { font-size: 0.6rem; color: #94a3b8; min-width: 28px; font-weight: 700; }
+    .file-upload-row .preview-small { max-width: 50px; max-height: 50px; object-fit: cover; border-radius: 4px; border: 1px solid #334155; display: none; }
+
+    .file-info { font-size: 0.5rem; color: #64748b; margin-top: 2px; }
+
+    .edit-panel-content::-webkit-scrollbar { width: 4px; }
+    .edit-panel-content::-webkit-scrollbar-track { background: #0f172a; }
+    .edit-panel-content::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 10px; }
+
+    /* AUTO-CALC BADGE */
+    .auto-badge {
+        font-size: 0.45rem; color: #34d399; background: rgba(52,211,153,0.15);
+        padding: 1px 6px; border-radius: 8px; border: 1px solid rgba(52,211,153,0.25);
+    }
+
+    /* TOAST */
+    .toast {
+        position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+        background: #1e293b; border: 1px solid #34d399; color: #34d399;
+        padding: 10px 24px; border-radius: 10px; font-size: 0.8rem; font-weight: 700;
+        z-index: 99999; display: none; box-shadow: 0 0 30px rgba(52,211,153,0.2);
+        animation: fadeInUp 0.3s ease;
+    }
+    .toast.error { border-color: #f87171; color: #f87171; box-shadow: 0 0 30px rgba(248,113,113,0.2); }
+
+    /* DATA-UPDATED FLASH */
+    .data-updated { animation: flashGreen 0.6s ease; }
+
+    /* ============================================================
+       ANIMATIONS
+       ============================================================ */
+    @keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50%       { opacity: 0.3; transform: scale(0.8); }
+    }
+
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+        to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
+    @keyframes flashGreen {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.5; background: rgba(52,211,153,0.15); border-radius: 6px; }
+    }
+
+    /* SCROLLBAR */
+    ::-webkit-scrollbar { width: 3px; height: 3px; }
+    ::-webkit-scrollbar-track { background: #0f172a; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+
+    /* ============================================================
+       1920px+ RESPONSIVE UPSCALING
+       ============================================================ */
+    @media (min-width: 1920px) {
+        #root { padding: 14px 24px 12px; gap: 8px; }
+
+        /* Header */
+        #hdr { height: 64px; }
+        #hdr h1 { font-size: 1.6rem; }
+        #hdr .subtitle { font-size: 1rem; }
+        #hdr .status-pill span { font-size: 1rem; }
+        #hdr .date-chip { font-size: 1rem; padding: 6px 18px; }
+        #clock { font-size: 2.9rem; }
+        .edit-btn-nav { font-size: 0.85rem; padding: 6px 16px; }
+
+        /* Marquee */
+        #marquee-bar { height: 48px; }
+        #marquee-bar .label-pill p { font-size: 1.5rem; }
+        #marquee-bar marquee { font-size: 2rem; }
+
+        /* Panel headers */
+        .panel-header { padding: 9px 18px; }
+        .panel-header .title-label { font-size: 0.9rem; }
+
+        /* Announcement */
+        .announcement-header .lbl { font-size: 0.95rem; }
+        .ann-title { font-size: 2.6rem; }
+        .ann-sub { font-size: 1.5rem; }
+        .ann-text { font-size: 1.3rem; }
+
+        /* Running strip */
+        #running-strip { height: 88px; }
+        .ri .name { font-size: 1.5rem; }
+        .ri .val  { font-size: 3rem; }
+        .ri .tgt  { font-size: 0.9rem; }
+        .ri .diff { font-size: 0.9rem; }
+        .ri { padding: 7px 22px 7px 16px; gap: 14px; }
+        .running-items { gap: 28px; }
+
+        /* Schedule */
+        #schedule-card { padding: 14px 20px; }
+        .schedule-head .lbl { font-size: 1rem; }
+        .schedule-head .date-badge { font-size: 0.85rem; }
+        .sched-item .date-lbl { font-size: 1.5rem; min-width: 130px; }
+        .sched-item .activity { font-size: 2rem; }
+        .sched-item .status-pill { font-size: 0.9rem; padding: 4px 16px; }
+        .sched-item { padding: 10px 0; }
+
+        /* Video card */
+        .video-header { padding: 9px 18px; }
+        .video-header .lbl { font-size: 0.9rem; }
+
+        /* Chart */
+        #chart-card { padding: 10px 18px 14px; }
+        #chart-card .chart-header .lbl { font-size: 1rem; }
+    }
+
+    /* ============================================================
+       Below 1280px — graceful degradation
+       ============================================================ */
+    @media (max-width: 1280px) {
+        #left-col  { width: 50%; }
+        .ann-title { font-size: 1.3rem; }
+        .ann-text  { font-size: 0.7rem; }
+    }
+
+    @media (max-width: 900px) {
+        #main { flex-direction: column; overflow-y: auto; }
+        #left-col, #right-col { width: 100%; }
+        html, body, #root { overflow: auto; height: auto; }
+    }
+</style>
+</head>
+<body>
+
+<!-- TOAST -->
+<div id="toast" class="toast">✅ Data berhasil disimpan!</div>
+
+<!-- ROOT -->
+<div id="root">
+
+    <!-- HEADER -->
+    <header id="hdr">
+        <div class="brand">
+            <div class="logo-wrap">
+                <img src="asset/logo.jpg" alt="Kapal Api Group">
+            </div>
+            <div>
+                <h1>DASHBOARD PRODUKSI 3IN1</h1>
+                <div class="subtitle">SMART FACTORY MONITORING</div>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <div class="status-pill">
+                <span class="dot-green"></span>
+                <span>RUNNING</span>
+            </div>
+            <div class="datetime-block">
+                <div class="date-chip" id="headerDate">
+                    <span class="day" id="dayName">Sabtu</span><span id="dateNumber">, 27</span><span id="monthYear"> Juni 2026</span>
+                </div>
+                <div id="clock">00:00:00</div>
+                <button class="edit-btn-nav" onclick="toggleEditPanel()">✏️ Edit</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MARQUEE -->
+    <div id="marquee-bar">
+        <div class="label-pill">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <p>HIMBAUAN :</p>
+        </div>
+        <marquee>• UTAMAKAN KESEHATAN DAN KESELAMATAN KERJA &nbsp;•&nbsp; SELALU GUNAKAN APD SESUAI DENGAN AREA KERJA &nbsp;•&nbsp; SELALU BUDAYAKAN 5R DI AREA KERJA ANDA &nbsp;•&nbsp; TERAPKAN PERSONAL HYGIENE DENGAN SELALU MENCUCI TANGAN DENGAN SABUN DAN AIR MENGALIR / GUNAKAN HAND SANITIZER &nbsp;•&nbsp; #FoodSafety Komitmen Kami</marquee>
+    </div>
+
+    <!-- MAIN GRID -->
+    <div id="main">
+
+        <!-- LEFT -->
+        <div id="left-col">
+
+            <!-- POSTER + ANNOUNCEMENT -->
+            <div id="poster-announce">
+
+                <!-- POSTER SLIDE -->
+                <div class="poster-wrapper">
+                    <div class="panel-header">
+                        <span class="pulse-dot yellow"></span>
+                        <span class="title-label yellow">📸 POSTER</span>
+                        <span class="badge gray" id="posterDate">#Update</span>
+                    </div>
+                    <div class="slide-container" id="posterSlideContainer">
+                        <div class="slides-track" id="posterSlides"></div>
+                    </div>
+                    <div class="indicators" id="posterIndicators"></div>
+                </div>
+
+                <!-- ANNOUNCEMENT -->
+                <div class="announcement-wrapper">
+                    <div class="announcement-header">
+                        <span class="megaphone">📢</span>
+                        <span class="lbl">📋 PENGUMUMAN</span>
+                        <span class="badge-live">● Penting</span>
+                    </div>
+                    <div class="announcement-body" id="announcementContent"></div>
+                    <div class="announcement-footer">
+                        <span class="upd" id="announcementTime">🕐 Update: Hari Ini</span>
+                        <span class="imp">⚠️ Perhatikan!</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CHART 5R -->
+            <div id="chart-card">
+                <div class="chart-header">
+                    <span class="dot"></span>
+                    <span class="lbl">📊 SCORE AUDIT 5R</span>
+                    <span class="badge">Update: Juni 2026</span>
+                </div>
+                <div id="chart-canvas-wrap">
+                    <canvas id="chart5R"></canvas>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- RIGHT -->
+        <div id="right-col">
+
+            <!-- RUNNING STRIP -->
+            <div id="running-strip">
+                <div class="run-header">
+                    <span class="dot"></span>
+                    <span class="lbl">🏃 PERFORMANCE RUNNING</span>
+                    <span class="badge">● Live</span>
+                </div>
+                <div class="running-track">
+                    <div class="running-items" id="runningItems"></div>
+                </div>
+            </div>
+
+            <!-- VIDEO SLIDE -->
+            <div id="video-card">
+                <div class="video-header">
+                    <span class="dot"></span>
+                    <span class="lbl">🎬 VIDEO</span>
+                    <span class="badge-red">● LIVE</span>
+                </div>
+                <div id="videoSlideContainer" class="slide-container">
+                    <div id="videoSlides"></div>
+                </div>
+                <div class="indicators" id="videoIndicators"></div>
+            </div>
+
+            <!-- SCHEDULE -->
+            <div id="schedule-card">
+                <div class="schedule-head">
+                    <div class="lbl">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        📋 JADWAL PRODUKSI
+                    </div>
+                    <span class="date-badge" id="scheduleDate">Hari Ini</span>
+                </div>
+                <div class="schedule-list" id="scheduleList"></div>
+            </div>
+
+        </div>
+    </div>
+
+</div><!-- /root -->
+
+<!-- ============================================================
+     EDIT PANEL
+     ============================================================ -->
+<div class="edit-panel" id="editPanel">
+    <div class="edit-panel-content">
+        <h2>✏️ Edit Data <span class="auto-badge">⚡ Auto-Calc</span></h2>
+        <p class="sub-title">Masukkan Nama Produk, Nilai yang Dicapai, dan Target</p>
+        <div class="legend-row">
+            <span class="legend-item"><span class="cb green"></span>Nilai Dicapai</span>
+            <span class="legend-item"><span class="cb blue"></span>Target</span>
+            <span class="legend-item"><span class="cb gray"></span>Selisih (Otomatis)</span>
+        </div>
+
+        <!-- MOCACINNO -->
+        <div class="edit-group">
+            <div class="group-label"><span>🔴 MOCACINNO</span></div>
+            <div class="edit-row">
+                <div class="fw"><label>📝 Nama Produk</label><input type="text" id="edit-name-mocacinno" value="MOCACINNO"></div>
+                <div class="fw"><label>✅ Dicapai</label><input type="number" id="edit-value-mocacinno" value="95.7" step="0.1" oninput="calculateDiff('mocacinno')"></div>
+                <div class="fw"><label>🎯 Target</label><input type="number" id="edit-target-mocacinno" value="95.0" step="0.1" oninput="calculateDiff('mocacinno')"></div>
+                <div class="fw"><label>📊 Selisih</label><span class="diff-display positive" id="diff-display-mocacinno">▲ +0.7%</span></div>
+            </div>
+        </div>
+
+        <!-- CAPPUCCINO -->
+        <div class="edit-group">
+            <div class="group-label"><span>🔵 CAPPUCCINO</span></div>
+            <div class="edit-row">
+                <div class="fw"><label>📝 Nama Produk</label><input type="text" id="edit-name-cappuccino" value="CAPPUCCINO"></div>
+                <div class="fw"><label>✅ Dicapai</label><input type="number" id="edit-value-cappuccino" value="93.3" step="0.1" oninput="calculateDiff('cappuccino')"></div>
+                <div class="fw"><label>🎯 Target</label><input type="number" id="edit-target-cappuccino" value="92.0" step="0.1" oninput="calculateDiff('cappuccino')"></div>
+                <div class="fw"><label>📊 Selisih</label><span class="diff-display positive" id="diff-display-cappuccino">▲ +1.3%</span></div>
+            </div>
+        </div>
+
+        <!-- GDF -->
+        <div class="edit-group">
+            <div class="group-label"><span>🟡 GDF MOCAFRIO</span></div>
+            <div class="edit-row">
+                <div class="fw"><label>📝 Nama Produk</label><input type="text" id="edit-name-gdf" value="GDF MOCAFRIO"></div>
+                <div class="fw"><label>✅ Dicapai</label><input type="number" id="edit-value-gdf" value="96.9" step="0.1" oninput="calculateDiff('gdf')"></div>
+                <div class="fw"><label>🎯 Target</label><input type="number" id="edit-target-gdf" value="95.5" step="0.1" oninput="calculateDiff('gdf')"></div>
+                <div class="fw"><label>📊 Selisih</label><span class="diff-display positive" id="diff-display-gdf">▲ +1.4%</span></div>
+            </div>
+        </div>
+
+        <!-- GRANULE -->
+        <div class="edit-group">
+            <div class="group-label"><span>🟢 GRANULE</span></div>
+            <div class="edit-row">
+                <div class="fw"><label>📝 Nama Produk</label><input type="text" id="edit-name-granule" value="GRANULE"></div>
+                <div class="fw"><label>✅ Dicapai</label><input type="number" id="edit-value-granule" value="83.5" step="0.1" oninput="calculateDiff('granule')"></div>
+                <div class="fw"><label>🎯 Target</label><input type="number" id="edit-target-granule" value="83.0" step="0.1" oninput="calculateDiff('granule')"></div>
+                <div class="fw"><label>📊 Selisih</label><span class="diff-display positive" id="diff-display-granule">▲ +0.5%</span></div>
+            </div>
+        </div>
+
+        <!-- CHART -->
+        <div class="edit-group" style="border-color:#3b82f6;">
+            <div class="group-label"><span>📊 CHART 5R</span></div>
+            <div class="edit-row">
+                <div class="fw" style="flex:1;"><label>🔴 Area Mixing</label><input type="number" id="edit-chart-mixing" value="92.5" step="0.1" style="width:100%;"></div>
+                <div class="fw" style="flex:1;"><label>🔵 Area Packing</label><input type="number" id="edit-chart-packing" value="97.1" step="0.1" style="width:100%;"></div>
+                <div class="fw" style="flex:1;"><label>🟡 Office</label><input type="number" id="edit-chart-office" value="94.8" step="0.1" style="width:100%;"></div>
+            </div>
+        </div>
+
+        <!-- ANNOUNCEMENT -->
+        <div class="edit-group" style="border-color:#fbbf24;">
+            <div class="group-label"><span>📢 PENGUMUMAN</span></div>
+            <div class="edit-row"><div class="fw" style="flex:1;"><label>📌 Judul</label><input type="text" id="edit-announce-title" value="NO FRAUD, YES TRUST!" style="width:100%;"></div></div>
+            <div class="edit-row" style="margin-top:4px;"><div class="fw" style="flex:1;"><label>📝 Sub Judul</label><input type="text" id="edit-announce-subtitle" value="Integritas adalah pilihan, kejujuran adalah identitas kita." style="width:100%;"></div></div>
+            <div class="edit-row" style="margin-top:4px;"><div class="fw" style="flex:1;"><label>📄 Isi Pengumuman</label><textarea id="edit-announce-body" rows="3"></textarea></div></div>
+        </div>
+
+        <!-- POSTER UPLOAD -->
+        <div class="edit-group" style="border-color:#f59e0b;">
+            <div class="group-label">
+                <span>📸 UPLOAD POSTER</span>
+                <button class="btn-add-file" onclick="addPosterRow()">➕ Tambah Gambar</button>
+            </div>
+            <div id="posterUploadContainer"></div>
+            <div class="file-info">📁 Format: JPG, PNG, GIF</div>
+        </div>
+
+        <!-- VIDEO UPLOAD -->
+        <div class="edit-group" style="border-color:#8b5cf6;">
+            <div class="group-label">
+                <span>🎬 UPLOAD VIDEO</span>
+                <button class="btn-add-file" onclick="addVideoRow()">➕ Tambah Video</button>
+            </div>
+            <div id="videoUploadContainer"></div>
+            <div class="file-info">📁 Format: MP4, WebM, MOV</div>
+        </div>
+
+        <!-- SCHEDULE -->
+        <div class="edit-group" style="border-color:#60a5fa;">
+            <div class="group-label"><span>📋 JADWAL PRODUKSI</span></div>
+            <div class="edit-row" style="margin-bottom:3px;">
+                <input type="date" id="edit-schedule-date1" value="2025-10-29" style="width:110px;flex:none;">
+                <input type="text"  id="edit-schedule-activity1" value="Produksi GDF Mocafrio" style="flex:2;">
+                <select id="edit-schedule-status1" style="width:85px;flex:none;font-size:0.7rem;">
+                    <option value="ongoing" selected>● Berlangsung</option>
+                    <option value="upcoming">○ Akan Datang</option>
+                    <option value="done">✓ Selesai</option>
+                </select>
+            </div>
+            <div class="edit-row" style="margin-bottom:3px;">
+                <input type="date" id="edit-schedule-date2" value="2025-10-30" style="width:110px;flex:none;">
+                <input type="text"  id="edit-schedule-activity2" value="Produksi Mocacinno" style="flex:2;">
+                <select id="edit-schedule-status2" style="width:85px;flex:none;font-size:0.7rem;">
+                    <option value="ongoing">● Berlangsung</option>
+                    <option value="upcoming" selected>○ Akan Datang</option>
+                    <option value="done">✓ Selesai</option>
+                </select>
+            </div>
+            <div class="edit-row">
+                <input type="date" id="edit-schedule-date3" value="2025-10-31" style="width:110px;flex:none;">
+                <input type="text"  id="edit-schedule-activity3" value="Maintenance & Cleaning" style="flex:2;">
+                <select id="edit-schedule-status3" style="width:85px;flex:none;font-size:0.7rem;">
+                    <option value="ongoing">● Berlangsung</option>
+                    <option value="upcoming">○ Akan Datang</option>
+                    <option value="done" selected>✓ Selesai</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="btn-save" onclick="saveData()">💾 Simpan</button>
+        <button class="btn-close" onclick="toggleEditPanel()">✖ Tutup</button>
+    </div>
+</div>
+
+<!-- ============================================================
+     JAVASCRIPT
+     ============================================================ -->
+<script>
+    // ============================================================
+    // CONFIG
+    // ============================================================
+    const JSONBIN_CONFIG = {
+        apiKey: '$2a$10$6/tFHgQ0g2mU2Qu0TESirO0hD58PlQjfTd47g0hHipHcnJisKFrL6',
+        binId:  '6a3fd7a5f5f4af5e29391ac8'
+    };
+
+    // ============================================================
+    // STATE
+    // ============================================================
+    let posterImages  = [];
+    let videoData     = [];
+    let scheduleData  = [
+        { date: '2025-10-29', activity: 'Produksi GDF Mocafrio', status: 'ongoing'  },
+        { date: '2025-10-30', activity: 'Produksi Mocacinno',    status: 'upcoming' },
+        { date: '2025-10-31', activity: 'Maintenance & Cleaning',status: 'done'     }
+    ];
+    let announcementData = {
+        title:    'NO FRAUD, YES TRUST!',
+        subtitle: 'Integritas adalah pilihan, kejujuran adalah identitas kita.',
+        body:     '⚠️ FRAUD MERUGIKAN SEMUA PIHAK:\n• Merugikan Perusahaan\n• Berdampak pada Karyawan\n• Merusak Kepercayaan Pelanggan & Partner\n• Menimbulkan Kerugian Finansial\n\n🌟 Jadi bagian dari perubahan! Biasakan jujur, budayakan integritas, cegah fraud bersama.'
+    };
+
+    const STATUS_LABELS   = { ongoing: '● Berlangsung', upcoming: '○ Akan Datang', done: '✓ Selesai' };
+    const STATUS_CLASSES  = { ongoing: 'ongoing', upcoming: 'upcoming', done: 'done' };
+
+    let currentPosterSlide = 0;
+    let currentVideoSlide  = 0;
+    let posterInterval = null;
+    let videoInterval  = null;
+    let chartInstance  = null;
+
+    // ============================================================
+    // TOAST
+    // ============================================================
+    function showToast(msg, isError = false) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast' + (isError ? ' error' : '');
+        t.style.display = 'block';
+        setTimeout(() => t.style.display = 'none', 3000);
+    }
+
+    // ============================================================
+    // JSONBIN
+    // ============================================================
+    async function saveToJSONBin() {
+        try {
+            const data = collectDashboardState();
+            const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_CONFIG.binId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_CONFIG.apiKey },
+                body: JSON.stringify(data)
+            });
+            if (res.ok) showToast('✅ Data berhasil disimpan ke cloud!');
+            else        showToast('❌ Gagal simpan ke cloud!', true);
+        } catch (e) { showToast('❌ Error: ' + e.message, true); }
+    }
+
+    async function loadFromJSONBin() {
+        try {
+            const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_CONFIG.binId}`, {
+                headers: { 'X-Master-Key': JSONBIN_CONFIG.apiKey }
+            });
+            if (!res.ok) return false;
+            const result = await res.json();
+            applyDashboardState(result.record);
+            showToast('✅ Data berhasil dimuat dari cloud!');
+            return true;
+        } catch (e) { return false; }
+    }
+
+    // ============================================================
+    // LOCALSTORAGE
+    // ============================================================
+    function saveToLocalStorage() {
+        try { localStorage.setItem('dashboardData', JSON.stringify(collectDashboardState())); } catch {}
+    }
+
+    function loadFromLocalStorage() {
+        try {
+            const s = localStorage.getItem('dashboardData');
+            if (!s) return false;
+            applyDashboardState(JSON.parse(s));
+            return true;
+        } catch { return false; }
+    }
+
+    // ============================================================
+    // COLLECT / APPLY STATE
+    // ============================================================
+    function collectDashboardState() {
+        const cards = ['mocacinno','cappuccino','gdf','granule'];
+        const runningData = {};
+        cards.forEach(id => {
+            runningData[id] = {
+                name:   document.getElementById(`edit-name-${id}`).value,
+                value:  document.getElementById(`edit-value-${id}`).value,
+                target: document.getElementById(`edit-target-${id}`).value
+            };
+        });
+        return {
+            posterImages, videoData, scheduleData, announcementData, runningData,
+            chartData: {
+                mixing:  document.getElementById('edit-chart-mixing').value,
+                packing: document.getElementById('edit-chart-packing').value,
+                office:  document.getElementById('edit-chart-office').value
+            }
+        };
+    }
+
+    function applyDashboardState(data) {
+        if (!data) return;
+        if (data.posterImages)     posterImages     = data.posterImages;
+        if (data.videoData)        videoData        = data.videoData;
+        if (data.scheduleData)     scheduleData     = data.scheduleData;
+        if (data.announcementData) announcementData = data.announcementData;
+
+        if (data.runningData) {
+            ['mocacinno','cappuccino','gdf','granule'].forEach(id => {
+                if (!data.runningData[id]) return;
+                document.getElementById(`edit-name-${id}`).value   = data.runningData[id].name   || id.toUpperCase();
+                document.getElementById(`edit-value-${id}`).value  = data.runningData[id].value  || 0;
+                document.getElementById(`edit-target-${id}`).value = data.runningData[id].target || 0;
+            });
+        }
+        if (data.chartData) {
+            document.getElementById('edit-chart-mixing').value   = data.chartData.mixing   || 92.5;
+            document.getElementById('edit-chart-packing').value  = data.chartData.packing  || 97.1;
+            document.getElementById('edit-chart-office').value   = data.chartData.office   || 94.8;
+        }
+    }
+
+    // ============================================================
+    // DIFF CALC
+    // ============================================================
+    function calculateDiff(id) {
+        const v = parseFloat(document.getElementById(`edit-value-${id}`).value) || 0;
+        const t = parseFloat(document.getElementById(`edit-target-${id}`).value) || 0;
+        const d = v - t;
+        const symbol = d > 0 ? '▲' : d < 0 ? '▼' : '•';
+        const cls    = d > 0 ? 'positive' : d < 0 ? 'negative' : 'neutral';
+        const el = document.getElementById(`diff-display-${id}`);
+        el.textContent = `${symbol} ${d >= 0 ? '+' : ''}${d.toFixed(1)}%`;
+        el.className = `diff-display ${cls}`;
+        renderRunningCards();
+    }
+
+    // ============================================================
+    // RUNNING CARDS
+    // ============================================================
+    function renderRunningCards() {
+        const icons  = { mocacinno:'🔴', cappuccino:'🔵', gdf:'🟡', granule:'🟢' };
+        const cards  = ['mocacinno','cappuccino','gdf','granule'];
+        let html = '';
+        for (let r = 0; r < 2; r++) {
+            cards.forEach(id => {
+                const name   = document.getElementById(`edit-name-${id}`)?.value  || id.toUpperCase();
+                const value  = document.getElementById(`edit-value-${id}`)?.value || '0';
+                const target = document.getElementById(`edit-target-${id}`)?.value|| '0';
+                const diffEl = document.getElementById(`diff-display-${id}`);
+                const diff   = diffEl ? diffEl.textContent : '• 0.0%';
+                const cls    = diff.includes('▲') ? 'pos' : diff.includes('▼') ? 'neg' : 'neu';
+                html += `
+                    <div class="ri">
+                        <span class="icon">${icons[id]}</span>
+                        <span class="name">${name}</span>
+                        <span class="val">${value}%</span>
+                        <span class="tgt">Target: ${target}%</span>
+                        <span class="diff ${cls}">${diff}</span>
+                    </div>`;
+            });
+        }
+        document.getElementById('runningItems').innerHTML = html;
+    }
+
+    // ============================================================
+    // DATETIME
+    // ============================================================
+    function updateDate() {
+        const now  = new Date();
+        const days = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+        const mons = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+        document.getElementById('dayName').textContent   = days[now.getDay()];
+        document.getElementById('dateNumber').textContent= ', ' + now.getDate();
+        document.getElementById('monthYear').textContent = ' ' + mons[now.getMonth()] + ' ' + now.getFullYear();
+    }
+
+    function updateClock() {
+        document.getElementById('clock').innerText = new Date().toLocaleTimeString('id-ID', {
+            hour:'2-digit', minute:'2-digit', second:'2-digit'
+        });
+    }
+
+    // ============================================================
+    // POSTER SLIDE
+    // ============================================================
+    function renderPosterSlide() {
+        const track  = document.getElementById('posterSlides');
+        const inds   = document.getElementById('posterIndicators');
+        const dateEl = document.getElementById('posterDate');
+        const now    = new Date();
+        dateEl.textContent = `📅 ${now.toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'})}`;
+
+        if (!posterImages.length || posterImages.every(i => !i)) {
+            track.innerHTML = `<div class="slide"><div class="slide-empty">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                <p>Belum ada poster</p><p style="font-size:0.5rem;color:#475569;">Upload melalui tombol Edit</p></div></div>`;
+            inds.innerHTML = '';
+            return;
+        }
+
+        track.innerHTML = posterImages.map((img,i) => `<div class="slide" data-index="${i}"><img src="${img}" alt="Poster ${i+1}"></div>`).join('');
+        inds.innerHTML  = posterImages.map((_,i) => `<button class="dot-ind${i===currentPosterSlide?' active':''}" onclick="goToPosterSlide(${i})"></button>`).join('');
+        updatePosterSlidePos();
+        startPosterAutoSlide();
+    }
+
+    function updatePosterSlidePos() {
+        const t = document.getElementById('posterSlides');
+        if (t) t.style.transform = `translateX(-${currentPosterSlide * 100}%)`;
+    }
+
+    function goToPosterSlide(index) {
+        if (!posterImages.length) return;
+        currentPosterSlide = ((index % posterImages.length) + posterImages.length) % posterImages.length;
+        renderPosterSlide();
+    }
+
+    function startPosterAutoSlide() {
+        stopPosterAutoSlide();
+        if (posterImages.length <= 1) return;
+        posterInterval = setInterval(() => goToPosterSlide(currentPosterSlide + 1), 5000);
+    }
+
+    function stopPosterAutoSlide() {
+        if (posterInterval) { clearInterval(posterInterval); posterInterval = null; }
+    }
+
+    // ============================================================
+    // VIDEO SLIDE
+    // ============================================================
+    function renderVideoSlide() {
+        const container = document.getElementById('videoSlides');
+        const inds      = document.getElementById('videoIndicators');
+
+        if (!videoData.length || videoData.every(v => !v)) {
+            container.innerHTML = `<div class="video-slide"><div class="slide-empty">
+                <svg style="width:36px;height:36px;margin:0 auto 6px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                <p>Belum ada video</p></div></div>`;
+            inds.innerHTML = '';
+            return;
+        }
+
+        container.innerHTML = videoData.map((vid,i) => `
+            <div class="video-slide" data-index="${i}">
+                <video autoplay loop muted playsinline><source src="${vid}" type="video/mp4"></video>
+                <span class="vid-label">📹 Video ${i+1}</span>
+            </div>`).join('');
+
+        inds.innerHTML = videoData.map((_,i) => `<button class="dot-ind${i===currentVideoSlide?' active':''}" onclick="goToVideoSlide(${i})"></button>`).join('');
+
+        updateVideoSlidePos();
+        startVideoAutoSlide();
+    }
+
+    function updateVideoSlidePos() {
+        const t = document.getElementById('videoSlides');
+        if (t) t.style.transform = `translateX(-${currentVideoSlide * 100}%)`;
+    }
+
+    function goToVideoSlide(index) {
+        if (!videoData.length) return;
+        currentVideoSlide = ((index % videoData.length) + videoData.length) % videoData.length;
+        renderVideoSlide();
+    }
+
+    function startVideoAutoSlide() {
+        stopVideoAutoSlide();
+        if (videoData.length <= 1) return;
+        videoInterval = setInterval(() => goToVideoSlide(currentVideoSlide + 1), 7000);
+    }
+
+    function stopVideoAutoSlide() {
+        if (videoInterval) { clearInterval(videoInterval); videoInterval = null; }
+    }
+
+    // ============================================================
+    // ANNOUNCEMENT
+    // ============================================================
+    function renderAnnouncement() {
+        const timeEl = document.getElementById('announcementTime');
+        const now    = new Date();
+        timeEl.textContent = `🕐 Update: ${now.toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'})} ${now.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})}`;
+
+        let body = announcementData.body.replace(/\n/g, '<br>');
+        body = body.replace(/⚠️/g, '<span class="hl-red">⚠️</span>');
+        body = body.replace(/🌟/g,  '<span class="hl">🌟</span>');
+        body = body.replace(/FRAUD/g, '<span class="hl-red">FRAUD</span>');
+        body = body.replace(/integritas/gi, '<span class="hl">integritas</span>');
+        body = body.replace(/jujur/gi, '<span class="hl-green">jujur</span>');
+
+        document.getElementById('announcementContent').innerHTML = `
+            <div class="ann-title">${announcementData.title}</div>
+            <div class="ann-sub">${announcementData.subtitle}</div>
+            <div class="ann-text">${body}</div>`;
+    }
+
+    // ============================================================
+    // SCHEDULE
+    // ============================================================
+    function renderSchedule() {
+        const today = new Date();
+        document.getElementById('scheduleDate').textContent = today.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+        document.getElementById('scheduleList').innerHTML = scheduleData.map(item => {
+            const [y,m,d] = item.date.split('-');
+            return `<div class="sched-item">
+                <span class="date-lbl">📅 ${d}/${m}/${y}</span>
+                <span class="activity">${item.activity}</span>
+                <span class="status-pill ${STATUS_CLASSES[item.status]}">${STATUS_LABELS[item.status]}</span>
+            </div>`;
+        }).join('');
+    }
+
+    // ============================================================
+    // POSTER UPLOAD ROWS
+    // ============================================================
+    function renderPosterUploadRows() {
+        const c = document.getElementById('posterUploadContainer');
+        if (!posterImages.length) {
+            c.innerHTML = `<div style="color:#64748b;font-size:0.6rem;text-align:center;padding:8px 0;">Belum ada gambar. Klik "Tambah Gambar" untuk menambahkan.</div>`;
+            return;
+        }
+        c.innerHTML = posterImages.map((img,i) => `
+            <div class="file-upload-row" id="poster-row-${i}">
+                <span class="file-label">#${i+1}</span>
+                <input type="file" accept="image/*" onchange="handlePosterFileChange(${i}, this)">
+                <img id="poster-preview-${i}" class="preview-small" src="${img||''}" style="${img?'display:block;':'display:none;'}">
+                <button class="btn-remove-file" onclick="removePosterImage(${i})">✕</button>
+            </div>`).join('');
+    }
+
+    function addPosterRow()        { posterImages.push(''); renderPosterUploadRows(); renderPosterSlide(); }
+    function removePosterImage(i)  {
+        posterImages.splice(i, 1);
+        if (currentPosterSlide >= posterImages.length) currentPosterSlide = Math.max(0, posterImages.length - 1);
+        renderPosterUploadRows(); renderPosterSlide();
+    }
+    function handlePosterFileChange(index, input) {
+        const file = input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = e => {
+            posterImages[index] = e.target.result;
+            const p = document.getElementById(`poster-preview-${index}`);
+            if (p) { p.src = e.target.result; p.style.display = 'block'; }
+            renderPosterSlide();
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // ============================================================
+    // VIDEO UPLOAD ROWS
+    // ============================================================
+    function renderVideoUploadRows() {
+        const c = document.getElementById('videoUploadContainer');
+        if (!videoData.length) {
+            c.innerHTML = `<div style="color:#64748b;font-size:0.6rem;text-align:center;padding:8px 0;">Belum ada video. Klik "Tambah Video" untuk menambahkan.</div>`;
+            return;
+        }
+        c.innerHTML = videoData.map((vid,i) => `
+            <div class="file-upload-row" id="video-row-${i}">
+                <span class="file-label">#${i+1}</span>
+                <input type="file" accept="video/*" onchange="handleVideoFileChange(${i}, this)">
+                <video id="video-preview-${i}" style="max-width:60px;max-height:50px;border-radius:4px;border:1px solid #334155;${vid?'display:block;':'display:none;'}" ${vid?`src="${vid}"`:''}  muted></video>
+                <button class="btn-remove-file" onclick="removeVideoFile(${i})">✕</button>
+            </div>`).join('');
+    }
+
+    function addVideoRow()        { videoData.push(''); renderVideoUploadRows(); renderVideoSlide(); }
+    function removeVideoFile(i)   {
+        videoData.splice(i, 1);
+        if (currentVideoSlide >= videoData.length) currentVideoSlide = Math.max(0, videoData.length - 1);
+        renderVideoUploadRows(); renderVideoSlide();
+    }
+    function handleVideoFileChange(index, input) {
+        const file = input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = e => {
+            videoData[index] = e.target.result;
+            const p = document.getElementById(`video-preview-${index}`);
+            if (p) { p.src = e.target.result; p.style.display = 'block'; }
+            renderVideoSlide();
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // ============================================================
+    // EDIT PANEL
+    // ============================================================
+    function toggleEditPanel() {
+        const panel = document.getElementById('editPanel');
+        panel.classList.toggle('active');
+        if (panel.classList.contains('active')) {
+            syncPanelFromDashboard();
+            ['mocacinno','cappuccino','gdf','granule'].forEach(calculateDiff);
+            renderPosterUploadRows();
+            renderVideoUploadRows();
+        }
+    }
+
+    function syncPanelFromDashboard() {
+        if (chartInstance) {
+            const d = chartInstance.data.datasets[0].data;
+            document.getElementById('edit-chart-mixing').value   = d[0] || 0;
+            document.getElementById('edit-chart-packing').value  = d[1] || 0;
+            document.getElementById('edit-chart-office').value   = d[2] || 0;
+        }
+        [1,2,3].forEach(n => {
+            const s = scheduleData[n-1] || {};
+            document.getElementById(`edit-schedule-date${n}`).value     = s.date     || '';
+            document.getElementById(`edit-schedule-activity${n}`).value  = s.activity || '';
+            document.getElementById(`edit-schedule-status${n}`).value    = s.status   || 'upcoming';
+        });
+        document.getElementById('edit-announce-title').value    = announcementData.title    || '';
+        document.getElementById('edit-announce-subtitle').value = announcementData.subtitle || '';
+        document.getElementById('edit-announce-body').value     = announcementData.body     || '';
+    }
+
+    // ============================================================
+    // SAVE DATA
+    // ============================================================
+    function saveData() {
+        ['mocacinno','cappuccino','gdf','granule'].forEach(calculateDiff);
+
+        // Chart
+        if (chartInstance) {
+            chartInstance.data.datasets[0].data = [
+                parseFloat(document.getElementById('edit-chart-mixing').value)   || 0,
+                parseFloat(document.getElementById('edit-chart-packing').value)  || 0,
+                parseFloat(document.getElementById('edit-chart-office').value)   || 0
+            ];
+            chartInstance.update();
+        }
+
+        // Announcement
+        announcementData.title    = document.getElementById('edit-announce-title').value    || 'Pengumuman';
+        announcementData.subtitle = document.getElementById('edit-announce-subtitle').value || '';
+        announcementData.body     = document.getElementById('edit-announce-body').value     || '';
+        renderAnnouncement();
+
+        // Schedule
+        scheduleData = [1,2,3].map(n => ({
+            date:     document.getElementById(`edit-schedule-date${n}`).value     || '',
+            activity: document.getElementById(`edit-schedule-activity${n}`).value || '',
+            status:   document.getElementById(`edit-schedule-status${n}`).value
+        }));
+        renderSchedule();
+
+        renderPosterSlide();
+        renderVideoSlide();
+        renderRunningCards();
+        saveToLocalStorage();
+        saveToJSONBin();
+
+        document.querySelectorAll('.poster-wrapper,.announcement-wrapper,#video-card,#schedule-card').forEach(el => {
+            el.classList.remove('data-updated');
+            requestAnimationFrame(() => { el.classList.add('data-updated'); setTimeout(() => el.classList.remove('data-updated'), 700); });
+        });
+
+        setTimeout(toggleEditPanel, 400);
+    }
+
+    // ============================================================
+    // CHART
+    // ============================================================
+    function initChart() {
+        const canvas = document.getElementById('chart5R');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+
+        const isLarge = window.innerWidth >= 1920;
+
+        chartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Area Mixing', 'Area Packing', 'Office'],
+                datasets: [{
+                    label: 'Skor 5R',
+                    data: [
+                        parseFloat(document.getElementById('edit-chart-mixing').value)  || 92.5,
+                        parseFloat(document.getElementById('edit-chart-packing').value) || 97.1,
+                        parseFloat(document.getElementById('edit-chart-office').value)  || 94.8
+                    ],
+                    backgroundColor: ['rgba(52,211,153,0.85)','rgba(96,165,250,0.85)','rgba(251,191,36,0.85)'],
+                    borderColor:     ['rgba(52,211,153,1)',   'rgba(96,165,250,1)',   'rgba(251,191,36,1)'],
+                    borderWidth: isLarge ? 3 : 2,
+                    borderRadius: isLarge ? 10 : 6,
+                    barPercentage: isLarge ? 0.65 : 0.5,
+                    categoryPercentage: isLarge ? 0.75 : 0.6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: { top: isLarge ? 28 : 14, right: 8, left: 8, bottom: 2 } },
+                plugins: {
+                    legend: { display: false },
+                    datalabels: {
+                        display: true,
+                        color: '#ffffff',
+                        anchor: 'end',
+                        align: 'top',
+                        offset: isLarge ? 5 : 1,
+                        clip: false,
+                        clamp: true,
+                        formatter: v => v.toFixed(1) + '%',
+                        font: { size: isLarge ? 18 : 10, weight: '900' }
+                    }
+                },
+                scales: {
+                    y: {
+                        min: 75,
+                        max: 105,
+                        grid: { color: 'rgba(255,255,255,0.06)' },
+                        ticks: {
+                            color: '#64748b',
+                            stepSize: isLarge ? 5 : 5,
+                            font: { size: isLarge ? 14 : 9, weight: 'bold' }
+                        }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: {
+                            color: '#94a3b8',
+                            font: { size: isLarge ? 16 : 10, weight: 'bold' }
+                        }
+                    }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+    }
+
+    // ============================================================
+    // INIT
+    // ============================================================
+    window.addEventListener('load', async () => {
+        updateClock();
+        updateDate();
+        setInterval(updateClock, 1000);
+        setInterval(updateDate, 60000);
+
+        if (!posterImages.length) posterImages = [''];
+        if (!videoData.length)    videoData    = [''];
+
+        const cloud = await loadFromJSONBin();
+        if (!cloud) loadFromLocalStorage();
+
+        ['mocacinno','cappuccino','gdf','granule'].forEach(calculateDiff);
+        renderPosterSlide();
+        renderAnnouncement();
+        renderVideoSlide();
+        renderSchedule();
+        renderRunningCards();
+        renderPosterUploadRows();
+        renderVideoUploadRows();
+        initChart();
+
+        // Hover pause
+        document.getElementById('posterSlideContainer').addEventListener('mouseenter', stopPosterAutoSlide);
+        document.getElementById('posterSlideContainer').addEventListener('mouseleave', startPosterAutoSlide);
+        document.getElementById('videoSlideContainer').addEventListener('mouseenter', stopVideoAutoSlide);
+        document.getElementById('videoSlideContainer').addEventListener('mouseleave', startVideoAutoSlide);
+
+        // Auto save every 10 min
+        setInterval(() => { saveToLocalStorage(); saveToJSONBin(); }, 600000);
+
+        // Resize → re-init chart for updated font sizes
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(initChart, 250);
+        });
+    });
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            const p = document.getElementById('editPanel');
+            if (p.classList.contains('active')) toggleEditPanel();
+        }
+    });
+
+    window.addEventListener('beforeunload', () => {
+        saveToLocalStorage();
+        saveToJSONBin();
+    });
+</script>
+
+</body>
+</html>
