@@ -486,7 +486,23 @@
         pointer-events: none;
     }
 
-    #videoIndicators .dot-ind.active { background: #ef4444; }
+    #videoIndicators .dot-ind {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: rgba(239, 68, 68, 0.3);
+        border: 2px solid rgba(239, 68, 68, 0.5);
+        cursor: pointer;
+        transition: all 0.3s ease;
+        padding: 0;
+    }
+
+    #videoIndicators .dot-ind.active {
+        background: #ef4444;
+        border-color: #ef4444;
+        transform: scale(1.3);
+        box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+    }
 
     #schedule-card {
         flex: 3;
@@ -1005,7 +1021,7 @@
                 <button class="btn-add-file" onclick="addVideoLink()">➕ Tambah Link</button>
             </div>
             <div id="videoLinkContainer"></div>
-            <div class="file-info">📁 Masukkan link video (YouTube, Google Drive, dll.)</div>
+            <div class="file-info">📁 Masukkan link video (MP4, WebM, YouTube, Google Drive, dll.)</div>
         </div>
 
         <!-- SCHEDULE -->
@@ -1046,7 +1062,7 @@
 </div>
 
 <!-- ============================================================
-     JAVASCRIPT - FIREBASE + POSTER UPLOAD + VIDEO LINK + DEFAULT ASSET
+     JAVASCRIPT
      ============================================================ -->
 <script>
     // ============================================================
@@ -1063,42 +1079,39 @@
         measurementId: "G-9PDYPG4B0L"
     };
 
-    // ============================================================
-    // INISIALISASI FIREBASE
-    // ============================================================
     firebase.initializeApp(firebaseConfig);
     const database = firebase.database();
 
     // ============================================================
     // STATE
     // ============================================================
-    let posterImages  = [];
-    let videoData     = [];
-    let scheduleData  = [
-        { date: '2025-10-29', activity: 'Produksi GDF Mocafrio', status: 'ongoing'  },
-        { date: '2025-10-30', activity: 'Produksi Mocacinno',    status: 'upcoming' },
-        { date: '2025-10-31', activity: 'Maintenance & Cleaning',status: 'done'     }
+    let posterImages = [];
+    let videoData = [];
+    let scheduleData = [
+        { date: '2025-10-29', activity: 'Produksi GDF Mocafrio', status: 'ongoing' },
+        { date: '2025-10-30', activity: 'Produksi Mocacinno', status: 'upcoming' },
+        { date: '2025-10-31', activity: 'Maintenance & Cleaning', status: 'done' }
     ];
     let announcementData = {
-        title:    'NO FRAUD, YES TRUST!',
+        title: 'NO FRAUD, YES TRUST!',
         subtitle: 'Integritas adalah pilihan, kejujuran adalah identitas kita.',
-        body:     '⚠️ FRAUD MERUGIKAN SEMUA PIHAK:\n• Merugikan Perusahaan\n• Berdampak pada Karyawan\n• Merusak Kepercayaan Pelanggan & Partner\n• Menimbulkan Kerugian Finansial\n\n🌟 Jadi bagian dari perubahan! Biasakan jujur, budayakan integritas, cegah fraud bersama.'
+        body: '⚠️ FRAUD MERUGIKAN SEMUA PIHAK:\n• Merugikan Perusahaan\n• Berdampak pada Karyawan\n• Merusak Kepercayaan Pelanggan & Partner\n• Menimbulkan Kerugian Finansial\n\n🌟 Jadi bagian dari perubahan! Biasakan jujur, budayakan integritas, cegah fraud bersama.'
     };
 
-    const STATUS_LABELS   = { ongoing: '● Berlangsung', upcoming: '○ Akan Datang', done: '✓ Selesai' };
-    const STATUS_CLASSES  = { ongoing: 'ongoing', upcoming: 'upcoming', done: 'done' };
+    const STATUS_LABELS = { ongoing: '● Berlangsung', upcoming: '○ Akan Datang', done: '✓ Selesai' };
+    const STATUS_CLASSES = { ongoing: 'ongoing', upcoming: 'upcoming', done: 'done' };
 
     let currentPosterSlide = 0;
-    let currentVideoSlide  = 0;
+    let currentVideoSlide = 0;
     let posterInterval = null;
-    let videoInterval  = null;
-    let chartInstance  = null;
+    let videoTimeout = null;
+    let chartInstance = null;
+    let videoDurations = [];
 
-    // ============================================================
-    // DEFAULT VIDEO DARI FOLDER ASSET
-    // ============================================================
     const DEFAULT_VIDEOS = [
         'asset/video1.mp4',
+        'asset/video2.mp4',
+        'asset/video3.mp4'
     ];
 
     // ============================================================
@@ -1113,7 +1126,7 @@
     }
 
     // ============================================================
-    // FUNGSI SAVE KE FIREBASE
+    // FIREBASE FUNCTIONS
     // ============================================================
     async function saveToCloud(data) {
         try {
@@ -1128,14 +1141,10 @@
         }
     }
 
-    // ============================================================
-    // FUNGSI LOAD DARI FIREBASE
-    // ============================================================
     async function loadFromCloud() {
         try {
             const snapshot = await database.ref('dashboardData').once('value');
             const data = snapshot.val();
-            
             if (data) {
                 applyDashboardState(data);
                 showToast('✅ Data dimuat dari cloud!');
@@ -1148,9 +1157,6 @@
         }
     }
 
-    // ============================================================
-    // LOCALSTORAGE (BACKUP)
-    // ============================================================
     function saveToLocalStorage() {
         try { localStorage.setItem('dashboardData', JSON.stringify(collectDashboardState())); } catch {}
     }
@@ -1175,7 +1181,7 @@
             granule: { name: 'GRANULE', value: 83.5, target: 83.0 }
         };
 
-        ['mocacinno','cappuccino','gdf','granule'].forEach(id => {
+        ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(id => {
             const d = defaults[id];
             document.getElementById(`edit-name-${id}`).value = d.name;
             document.getElementById(`edit-value-${id}`).value = d.value;
@@ -1189,7 +1195,7 @@
         announcementData = {
             title: 'NO FRAUD, YES TRUST!',
             subtitle: 'Integritas adalah pilihan, kejujuran adalah identitas kita.',
-            body: `⚠️ FRAUD MERUGIKAN SEMUA PIHAK:\n• Merugikan Perusahaan\n• Berdampak pada Karyawan\n• Merusak Kepercayaan Pelanggan & Partner\n• Menimbulkan Kerugian Finansial\n\n🌟 Jadi bagian dari perubahan! Biasakan jujur, budayakan integritas, cegah fraud bersama.`
+            body: '⚠️ FRAUD MERUGIKAN SEMUA PIHAK:\n• Merugikan Perusahaan\n• Berdampak pada Karyawan\n• Merusak Kepercayaan Pelanggan & Partner\n• Menimbulkan Kerugian Finansial\n\n🌟 Jadi bagian dari perubahan! Biasakan jujur, budayakan integritas, cegah fraud bersama.'
         };
 
         scheduleData = [
@@ -1197,12 +1203,9 @@
             { date: '2025-10-30', activity: 'Produksi Mocacinno', status: 'upcoming' },
             { date: '2025-10-31', activity: 'Maintenance & Cleaning', status: 'done' }
         ];
-        
+
         posterImages = [];
-        
-        // 🔥 DEFAULT VIDEO DARI FOLDER ASSET
         videoData = [...DEFAULT_VIDEOS];
-        
         console.log('📁 Default videos from asset folder:', videoData);
     }
 
@@ -1210,17 +1213,16 @@
     // COLLECT / APPLY STATE
     // ============================================================
     function collectDashboardState() {
-        const cards = ['mocacinno','cappuccino','gdf','granule'];
+        const cards = ['mocacinno', 'cappuccino', 'gdf', 'granule'];
         const runningData = {};
         cards.forEach(id => {
             runningData[id] = {
-                name:   document.getElementById(`edit-name-${id}`).value,
-                value:  document.getElementById(`edit-value-${id}`).value,
+                name: document.getElementById(`edit-name-${id}`).value,
+                value: document.getElementById(`edit-value-${id}`).value,
                 target: document.getElementById(`edit-target-${id}`).value
             };
         });
-        
-        // 🔥 AMBIL LINK VIDEO DARI INPUT (BUKAN DEFAULT ASSET)
+
         const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
         const newVideoData = [];
         videoInputs.forEach(input => {
@@ -1228,20 +1230,19 @@
                 newVideoData.push(input.value.trim());
             }
         });
-        
-        // 🔥 HANYA SIMPAN LINK KE FIREBASE (DEFAULT ASSET TIDAK DISIMPAN)
+
         const videoToSave = newVideoData.filter(link => link && link.trim() !== '');
-        
+
         return {
-            posterImages, 
-            videoData: videoToSave, // Hanya link yang disimpan ke Firebase
-            scheduleData, 
-            announcementData, 
+            posterImages,
+            videoData: videoToSave,
+            scheduleData,
+            announcementData,
             runningData,
             chartData: {
-                mixing:  document.getElementById('edit-chart-mixing').value,
+                mixing: document.getElementById('edit-chart-mixing').value,
                 packing: document.getElementById('edit-chart-packing').value,
-                office:  document.getElementById('edit-chart-office').value
+                office: document.getElementById('edit-chart-office').value
             }
         };
     }
@@ -1252,31 +1253,26 @@
         if (data.scheduleData) scheduleData = data.scheduleData;
         if (data.announcementData) announcementData = data.announcementData;
 
-        // 🔥 GABUNGKAN: LINK DARI FIREBASE + DEFAULT DARI ASSET
         const savedLinks = data.videoData || [];
-        
-        // Filter link yang valid
         const validLinks = savedLinks.filter(link => link && link.trim() !== '');
-        
-        // Gabungkan: link (dari Firebase) + default (dari asset)
         videoData = [...validLinks, ...DEFAULT_VIDEOS];
-        
+
         console.log('📦 Video: Link dari Firebase:', validLinks);
         console.log('📦 Video: Default dari asset:', DEFAULT_VIDEOS);
         console.log('📦 Total video:', videoData);
 
         if (data.runningData) {
-            ['mocacinno','cappuccino','gdf','granule'].forEach(id => {
+            ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(id => {
                 if (!data.runningData[id]) return;
-                document.getElementById(`edit-name-${id}`).value   = data.runningData[id].name   || id.toUpperCase();
-                document.getElementById(`edit-value-${id}`).value  = data.runningData[id].value  || 0;
+                document.getElementById(`edit-name-${id}`).value = data.runningData[id].name || id.toUpperCase();
+                document.getElementById(`edit-value-${id}`).value = data.runningData[id].value || 0;
                 document.getElementById(`edit-target-${id}`).value = data.runningData[id].target || 0;
             });
         }
         if (data.chartData) {
-            document.getElementById('edit-chart-mixing').value   = data.chartData.mixing   || 92.5;
-            document.getElementById('edit-chart-packing').value  = data.chartData.packing  || 97.1;
-            document.getElementById('edit-chart-office').value   = data.chartData.office   || 94.8;
+            document.getElementById('edit-chart-mixing').value = data.chartData.mixing || 92.5;
+            document.getElementById('edit-chart-packing').value = data.chartData.packing || 97.1;
+            document.getElementById('edit-chart-office').value = data.chartData.office || 94.8;
         }
     }
 
@@ -1288,7 +1284,7 @@
         const t = parseFloat(document.getElementById(`edit-target-${id}`).value) || 0;
         const d = v - t;
         const symbol = d > 0 ? '▲' : d < 0 ? '▼' : '•';
-        const cls    = d > 0 ? 'positive' : d < 0 ? 'negative' : 'neutral';
+        const cls = d > 0 ? 'positive' : d < 0 ? 'negative' : 'neutral';
         const el = document.getElementById(`diff-display-${id}`);
         el.textContent = `${symbol} ${d >= 0 ? '+' : ''}${d.toFixed(1)}%`;
         el.className = `diff-display ${cls}`;
@@ -1299,17 +1295,17 @@
     // RUNNING CARDS
     // ============================================================
     function renderRunningCards() {
-        const icons  = { mocacinno:'🔴', cappuccino:'🔵', gdf:'🟡', granule:'🟢' };
-        const cards  = ['mocacinno','cappuccino','gdf','granule'];
+        const icons = { mocacinno: '🔴', cappuccino: '🔵', gdf: '🟡', granule: '🟢' };
+        const cards = ['mocacinno', 'cappuccino', 'gdf', 'granule'];
         let html = '';
         for (let r = 0; r < 2; r++) {
             cards.forEach(id => {
-                const name   = document.getElementById(`edit-name-${id}`)?.value  || id.toUpperCase();
-                const value  = document.getElementById(`edit-value-${id}`)?.value || '0';
-                const target = document.getElementById(`edit-target-${id}`)?.value|| '0';
+                const name = document.getElementById(`edit-name-${id}`)?.value || id.toUpperCase();
+                const value = document.getElementById(`edit-value-${id}`)?.value || '0';
+                const target = document.getElementById(`edit-target-${id}`)?.value || '0';
                 const diffEl = document.getElementById(`diff-display-${id}`);
-                const diff   = diffEl ? diffEl.textContent : '• 0.0%';
-                const cls    = diff.includes('▲') ? 'pos' : diff.includes('▼') ? 'neg' : 'neu';
+                const diff = diffEl ? diffEl.textContent : '• 0.0%';
+                const cls = diff.includes('▲') ? 'pos' : diff.includes('▼') ? 'neg' : 'neu';
                 html += `
                     <div class="ri">
                         <span class="icon">${icons[id]}</span>
@@ -1327,17 +1323,17 @@
     // DATETIME
     // ============================================================
     function updateDate() {
-        const now  = new Date();
-        const days = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
-        const mons = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-        document.getElementById('dayName').textContent   = days[now.getDay()];
-        document.getElementById('dateNumber').textContent= ', ' + now.getDate();
+        const now = new Date();
+        const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        const mons = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        document.getElementById('dayName').textContent = days[now.getDay()];
+        document.getElementById('dateNumber').textContent = ', ' + now.getDate();
         document.getElementById('monthYear').textContent = ' ' + mons[now.getMonth()] + ' ' + now.getFullYear();
     }
 
     function updateClock() {
         document.getElementById('clock').innerText = new Date().toLocaleTimeString('id-ID', {
-            hour:'2-digit', minute:'2-digit', second:'2-digit'
+            hour: '2-digit', minute: '2-digit', second: '2-digit'
         });
     }
 
@@ -1345,11 +1341,11 @@
     // POSTER SLIDE
     // ============================================================
     function renderPosterSlide() {
-        const track  = document.getElementById('posterSlides');
-        const inds   = document.getElementById('posterIndicators');
+        const track = document.getElementById('posterSlides');
+        const inds = document.getElementById('posterIndicators');
         const dateEl = document.getElementById('posterDate');
-        const now    = new Date();
-        dateEl.textContent = `📅 ${now.toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'})}`;
+        const now = new Date();
+        dateEl.textContent = `📅 ${now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
         if (!posterImages.length || posterImages.every(i => !i)) {
             track.innerHTML = `<div class="slide"><div class="slide-empty">
@@ -1359,8 +1355,8 @@
             return;
         }
 
-        track.innerHTML = posterImages.map((img,i) => `<div class="slide" data-index="${i}"><img src="${img}" alt="Poster ${i+1}"></div>`).join('');
-        inds.innerHTML  = posterImages.map((_,i) => `<button class="dot-ind${i===currentPosterSlide?' active':''}" onclick="goToPosterSlide(${i})"></button>`).join('');
+        track.innerHTML = posterImages.map((img, i) => `<div class="slide" data-index="${i}"><img src="${img}" alt="Poster ${i+1}"></div>`).join('');
+        inds.innerHTML = posterImages.map((_, i) => `<button class="dot-ind${i === currentPosterSlide ? ' active' : ''}" onclick="goToPosterSlide(${i})"></button>`).join('');
         updatePosterSlidePos();
         startPosterAutoSlide();
     }
@@ -1383,15 +1379,60 @@
     }
 
     function stopPosterAutoSlide() {
-        if (posterInterval) { clearInterval(posterInterval); posterInterval = null; }
+        if (posterInterval) { clearInterval(posterInterval);
+            posterInterval = null; }
     }
 
     // ============================================================
-    // VIDEO SLIDE - DENGAN DETEKSI DURASI
+    // VIDEO SLIDE - AUTO-SLIDE SESUAI DURASI
     // ============================================================
+
+    function handleVideoMetadata(index, duration) {
+        if (duration && duration > 0 && !isNaN(duration)) {
+            videoDurations[index] = duration;
+            console.log(`📹 Video ${index + 1} durasi: ${duration.toFixed(1)} detik`);
+
+            const allDetected = videoData.every((v, i) => {
+                return videoDurations[i] !== undefined && videoDurations[i] > 0;
+            });
+
+            if (allDetected && videoData.length > 1) {
+                startVideoAutoSlide();
+            }
+        }
+    }
+
+    function handleVideoError(index) {
+        console.warn(`⚠️ Error loading video ${index + 1}, using default duration 5s`);
+        if (!videoDurations[index]) {
+            videoDurations[index] = 5;
+            const allDetected = videoData.every((v, i) => {
+                return videoDurations[i] !== undefined && videoDurations[i] > 0;
+            });
+            if (allDetected && videoData.length > 1) {
+                startVideoAutoSlide();
+            }
+        }
+    }
+
+    function onVideoEnded(index) {
+        console.log(`📹 Video ${index + 1} selesai diputar`);
+
+        if (videoData.length === 1) {
+            console.log('🔄 Hanya 1 video, akan loop otomatis');
+            return;
+        }
+
+        if (index === currentVideoSlide && videoData.length > 1) {
+            const nextSlide = (currentVideoSlide + 1) % videoData.length;
+            console.log(`➡️ Pindah ke video ${nextSlide + 1}`);
+            goToVideoSlide(nextSlide);
+        }
+    }
+
     function renderVideoSlide() {
         const container = document.getElementById('videoSlides');
-        const inds      = document.getElementById('videoIndicators');
+        const inds = document.getElementById('videoIndicators');
 
         if (!videoData.length || videoData.every(v => !v)) {
             container.innerHTML = `<div class="video-slide"><div class="slide-empty">
@@ -1401,185 +1442,180 @@
             return;
         }
 
+        videoDurations = new Array(videoData.length).fill(undefined);
+
         container.innerHTML = videoData.map((vid, i) => {
-            let videoHtml = '';
-            
-            // Deteksi YouTube
-            if (vid.includes('youtube.com') || vid.includes('youtu.be')) {
-                let videoId = '';
-                if (vid.includes('youtu.be')) {
-                    videoId = vid.split('/').pop();
-                } else if (vid.includes('watch?v=')) {
-                    videoId = vid.split('v=')[1]?.split('&')[0];
-                } else if (vid.includes('embed/')) {
-                    videoId = vid.split('embed/')[1]?.split('?')[0];
-                }
-                if (videoId) {
-                    videoHtml = `
-                        <iframe width="100%" height="100%" 
-                            src="https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&enablejsapi=1" 
-                            frameborder="0" 
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                            allowfullscreen>
-                        </iframe>
-                    `;
-                } else {
-                    videoHtml = `<video controls autoplay muted playsinline width="100%" height="100%"><source src="${vid}" type="video/mp4"></video>`;
-                }
-            }
-            // Deteksi Google Drive atau link langsung
-            else {
-                videoHtml = `
-                    <video controls autoplay muted playsinline width="100%" height="100%" id="video-player-${i}">
-                        <source src="${vid}" type="video/mp4">
-                    </video>
-                `;
-            }
-            
+            const isActive = i === currentVideoSlide;
+            const shouldLoop = videoData.length === 1;
             return `
-                <div class="video-slide" data-index="${i}">
-                    ${videoHtml}
+                <div class="video-slide" data-index="${i}" style="${isActive ? '' : 'display:none;'}">
+                    <video 
+                        controls 
+                        ${isActive ? 'autoplay' : ''}
+                        muted 
+                        playsinline 
+                        width="100%" 
+                        height="100%" 
+                        id="video-player-${i}"
+                        style="object-fit:contain; background:#000;"
+                        preload="metadata"
+                        ${shouldLoop ? 'loop' : ''}
+                        onloadedmetadata="handleVideoMetadata(${i}, this.duration)"
+                        onerror="handleVideoError(${i})"
+                        onended="onVideoEnded(${i})">
+                        <source src="${vid}" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
                     <span class="vid-label">📹 Video ${i+1}</span>
                 </div>
             `;
         }).join('');
 
-        inds.innerHTML = videoData.map((_, i) => 
+        inds.innerHTML = videoData.map((_, i) =>
             `<button class="dot-ind${i === currentVideoSlide ? ' active' : ''}" onclick="goToVideoSlide(${i})"></button>`
         ).join('');
 
-        updateVideoSlidePos();
-        
-        // Deteksi durasi setelah video terload
         setTimeout(() => {
-            detectVideoDurations();
-        }, 500);
+            initializeVideoPlayer();
+        }, 300);
     }
 
-    function updateVideoSlidePos() {
-        const t = document.getElementById('videoSlides');
-        if (t) t.style.transform = `translateX(-${currentVideoSlide * 100}%)`;
-    }
-
-    function goToVideoSlide(index) {
-        if (!videoData.length) return;
-        currentVideoSlide = ((index % videoData.length) + videoData.length) % videoData.length;
-        renderVideoSlide();
-    }
-
-    // ============================================================
-    // DETEKSI DURASI VIDEO & SET INTERVAL
-    // ============================================================
-    let videoDurations = [];
-
-    function detectVideoDurations() {
-        videoDurations = [];
+    function initializeVideoPlayer() {
         const videoElements = document.querySelectorAll('#videoSlides video');
-        
-        if (videoElements.length === 0) {
-            // Jika hanya YouTube, gunakan default 10 detik
-            if (videoData.length > 0) {
-                console.log('📹 YouTube video detected, using default 10 seconds');
-                setVideoSlideIntervalDefault();
-            }
-            return;
-        }
-        
-        let loadedCount = 0;
-        const totalVideos = videoElements.length;
-        
         videoElements.forEach((video, index) => {
-            if (video.readyState >= 1 && video.duration) {
-                videoDurations[index] = video.duration;
-                loadedCount++;
-                console.log(`📹 Video ${index + 1} durasi: ${video.duration} detik (cache)`);
-                
-                if (loadedCount === totalVideos) {
-                    setVideoSlideInterval(videoDurations);
+            if (videoData.length === 1) {
+                video.loop = true;
+            } else {
+                video.loop = false;
+            }
+
+            if (video.readyState >= 1 && video.duration && video.duration > 0) {
+                handleVideoMetadata(index, video.duration);
+            }
+        });
+
+        setTimeout(() => {
+            playCurrentVideo();
+        }, 100);
+    }
+
+    function playCurrentVideo() {
+        const videos = document.querySelectorAll('#videoSlides video');
+        videos.forEach((video, index) => {
+            if (index === currentVideoSlide) {
+                video.muted = true;
+                video.playsInline = true;
+
+                if (videoData.length === 1) {
+                    video.loop = true;
+                } else {
+                    video.loop = false;
+                }
+
+                video.currentTime = 0;
+
+                const playPromise = video.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(err => {
+                        console.log(`⚠️ Auto-play blocked untuk video ${index + 1}:`, err.message);
+                        document.addEventListener('click', function playOnClick() {
+                            video.play().catch(e => console.log('Still blocked:', e));
+                            document.removeEventListener('click', playOnClick);
+                        }, { once: true });
+                    });
                 }
             } else {
-                video.addEventListener('loadedmetadata', function() {
-                    const duration = this.duration;
-                    videoDurations[index] = duration;
-                    loadedCount++;
-                    console.log(`📹 Video ${index + 1} durasi: ${duration} detik`);
-                    
-                    if (loadedCount === totalVideos) {
-                        setVideoSlideInterval(videoDurations);
-                    }
-                });
+                video.pause();
             }
         });
     }
 
-    function setVideoSlideInterval(durations) {
-        stopVideoAutoSlide();
-        
-        if (videoData.length <= 1) return;
-        
-        const currentDuration = durations[currentVideoSlide] || 10;
-        const intervalTime = (currentDuration + 1) * 1000;
-        
-        console.log(`⏱️ Slide ${currentVideoSlide + 1}: ${currentDuration} detik, interval ${intervalTime/1000} detik`);
-        
-        videoInterval = setInterval(() => {
-            const nextSlide = (currentVideoSlide + 1) % videoData.length;
-            goToVideoSlide(nextSlide);
-            
-            // Update interval untuk slide berikutnya
-            setTimeout(() => {
-                detectVideoDurations();
-            }, 100);
-        }, intervalTime);
-    }
-
-    function setVideoSlideIntervalDefault() {
-        stopVideoAutoSlide();
-        if (videoData.length <= 1) return;
-        
-        console.log('⏱️ Using default 10 seconds interval for YouTube videos');
-        videoInterval = setInterval(() => {
-            goToVideoSlide((currentVideoSlide + 1) % videoData.length);
-        }, 10000);
-    }
-
     function startVideoAutoSlide() {
         stopVideoAutoSlide();
-        if (videoData.length <= 1) return;
-        
-        // Cek apakah ada video file (bukan YouTube)
-        const hasVideoFile = document.querySelectorAll('#videoSlides video').length > 0;
-        
-        if (hasVideoFile) {
-            detectVideoDurations();
-        } else {
-            setVideoSlideIntervalDefault();
+
+        if (videoData.length <= 1) {
+            console.log('⏹️ Hanya 1 video, tidak auto-slide (akan loop)');
+            return;
         }
+
+        console.log('▶️ Auto-slide dimulai (menggunakan event onended)');
     }
 
     function stopVideoAutoSlide() {
-        if (videoInterval) { clearInterval(videoInterval); videoInterval = null; }
+        if (videoTimeout) {
+            clearTimeout(videoTimeout);
+            videoTimeout = null;
+            console.log('⏹️ Auto-slide dihentikan');
+        }
+    }
+
+    function goToVideoSlide(index) {
+        if (!videoData.length) return;
+
+        index = ((index % videoData.length) + videoData.length) % videoData.length;
+
+        if (index === currentVideoSlide) {
+            const video = document.querySelector(`#video-player-${index}`);
+            if (video) {
+                video.currentTime = 0;
+                video.play().catch(e => console.log('Play error:', e));
+            }
+            return;
+        }
+
+        currentVideoSlide = index;
+
+        const slides = document.querySelectorAll('#videoSlides .video-slide');
+        slides.forEach((slide, i) => {
+            slide.style.display = i === index ? '' : 'none';
+            const video = slide.querySelector('video');
+            if (video) {
+                if (i === index) {
+                    video.muted = true;
+                    video.playsInline = true;
+
+                    if (videoData.length === 1) {
+                        video.loop = true;
+                    } else {
+                        video.loop = false;
+                    }
+
+                    video.currentTime = 0;
+                    setTimeout(() => {
+                        video.play().catch(e => console.log('Play error:', e));
+                    }, 50);
+                } else {
+                    video.pause();
+                }
+            }
+        });
+
+        const inds = document.querySelectorAll('#videoIndicators .dot-ind');
+        inds.forEach((dot, i) => {
+            dot.classList.toggle('active', i === index);
+        });
+    }
+
+    function toggleVideoAutoSlide() {
+        if (videoTimeout) {
+            stopVideoAutoSlide();
+            return false;
+        } else {
+            startVideoAutoSlide();
+            return true;
+        }
     }
 
     // ============================================================
-    // VIDEO LINK ROWS (Input Link) - HANYA TAMPILKAN LINK
+    // VIDEO LINK ROWS
     // ============================================================
     function renderVideoLinkRows() {
-        console.log('🔄 renderVideoLinkRows dipanggil...');
         const c = document.getElementById('videoLinkContainer');
-        
-        if (!c) {
-            console.error('❌ Container videoLinkContainer tidak ditemukan!');
-            return;
-        }
-        
-        // 🔥 FILTER: HANYA TAMPILKAN LINK (BUKAN DEFAULT ASSET)
+        if (!c) return;
+
         const linkOnly = videoData.filter(v => !DEFAULT_VIDEOS.includes(v));
-        
-        console.log('📦 linkOnly:', linkOnly);
-        
         c.innerHTML = '';
-        
+
         if (!linkOnly || linkOnly.length === 0) {
             c.innerHTML = `<div style="color:#64748b;font-size:0.6rem;text-align:center;padding:8px 0;">
                 Belum ada link video. Klik "Tambah Link" untuk menambahkan.
@@ -1587,7 +1623,7 @@
             </div>`;
             return;
         }
-        
+
         let html = '';
         linkOnly.forEach((link, i) => {
             html += `
@@ -1599,45 +1635,33 @@
                 </div>
             `;
         });
-        
         c.innerHTML = html;
-        console.log('✅ Container diisi dengan', linkOnly.length, 'link');
     }
 
     function saveVideoLink(index) {
         const input = document.getElementById(`video-link-input-${index}`);
         if (!input) return;
-        
+
         const link = input.value.trim();
         if (!link) {
             showToast('⚠️ Masukkan link video terlebih dahulu!', true);
             return;
         }
-        
-        // 🔥 SIMPAN LINK KE videoData (GANTI YANG LAMA)
-        // Ambil semua link yang sudah ada (kecuali default)
+
         const existingLinks = videoData.filter(v => !DEFAULT_VIDEOS.includes(v));
-        
-        // Update link pada index yang sesuai
         if (index < existingLinks.length) {
             existingLinks[index] = link;
         } else {
             existingLinks.push(link);
         }
-        
-        // Gabungkan kembali dengan default
+
         videoData = [...existingLinks, ...DEFAULT_VIDEOS];
-        
-        console.log('✅ Link video disimpan:', link);
-        console.log('📦 videoData setelah save:', videoData);
         showToast('✅ Link video berhasil disimpan!');
         renderVideoLinkRows();
         renderVideoSlide();
     }
 
     function addVideoLink() {
-        console.log('✅ addVideoLink dipanggil!');
-        // Tambahkan link kosong ke videoData (di posisi sebelum default)
         const existingLinks = videoData.filter(v => !DEFAULT_VIDEOS.includes(v));
         existingLinks.push('');
         videoData = [...existingLinks, ...DEFAULT_VIDEOS];
@@ -1646,7 +1670,6 @@
     }
 
     function removeVideoLink(i) {
-        console.log('✅ removeVideoLink dipanggil untuk index:', i);
         const existingLinks = videoData.filter(v => !DEFAULT_VIDEOS.includes(v));
         existingLinks.splice(i, 1);
         videoData = [...existingLinks, ...DEFAULT_VIDEOS];
@@ -1664,21 +1687,26 @@
             c.innerHTML = `<div style="color:#64748b;font-size:0.6rem;text-align:center;padding:8px 0;">Belum ada gambar. Klik "Tambah Gambar" untuk menambahkan.</div>`;
             return;
         }
-        c.innerHTML = posterImages.map((img,i) => `
+        c.innerHTML = posterImages.map((img, i) => `
             <div class="file-upload-row" id="poster-row-${i}">
                 <span class="file-label">#${i+1}</span>
                 <input type="file" accept="image/*" onchange="handlePosterFileChange(${i}, this)">
-                <img id="poster-preview-${i}" class="preview-small" src="${img||''}" style="${img?'display:block;':'display:none;'}">
+                <img id="poster-preview-${i}" class="preview-small" src="${img || ''}" style="${img ? 'display:block;' : 'display:none;'}">
                 <button class="btn-remove-file" onclick="removePosterImage(${i})">✕</button>
             </div>`).join('');
     }
 
-    function addPosterRow()        { posterImages.push(''); renderPosterUploadRows(); renderPosterSlide(); }
-    function removePosterImage(i)  {
+    function addPosterRow() { posterImages.push('');
+        renderPosterUploadRows();
+        renderPosterSlide(); }
+
+    function removePosterImage(i) {
         posterImages.splice(i, 1);
         if (currentPosterSlide >= posterImages.length) currentPosterSlide = Math.max(0, posterImages.length - 1);
-        renderPosterUploadRows(); renderPosterSlide();
+        renderPosterUploadRows();
+        renderPosterSlide();
     }
+
     function handlePosterFileChange(index, input) {
         const file = input.files[0];
         if (!file) return;
@@ -1686,7 +1714,8 @@
         reader.onload = e => {
             posterImages[index] = e.target.result;
             const p = document.getElementById(`poster-preview-${index}`);
-            if (p) { p.src = e.target.result; p.style.display = 'block'; }
+            if (p) { p.src = e.target.result;
+                p.style.display = 'block'; }
             renderPosterSlide();
         };
         reader.readAsDataURL(file);
@@ -1697,12 +1726,12 @@
     // ============================================================
     function renderAnnouncement() {
         const timeEl = document.getElementById('announcementTime');
-        const now    = new Date();
-        timeEl.textContent = `🕐 Update: ${now.toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'})} ${now.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})}`;
+        const now = new Date();
+        timeEl.textContent = `🕐 Update: ${now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })} ${now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`;
 
         let body = announcementData.body.replace(/\n/g, '<br>');
         body = body.replace(/⚠️/g, '<span class="hl-red">⚠️</span>');
-        body = body.replace(/🌟/g,  '<span class="hl">🌟</span>');
+        body = body.replace(/🌟/g, '<span class="hl">🌟</span>');
         body = body.replace(/FRAUD/g, '<span class="hl-red">FRAUD</span>');
         body = body.replace(/integritas/gi, '<span class="hl">integritas</span>');
         body = body.replace(/jujur/gi, '<span class="hl-green">jujur</span>');
@@ -1718,9 +1747,9 @@
     // ============================================================
     function renderSchedule() {
         const today = new Date();
-        document.getElementById('scheduleDate').textContent = today.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+        document.getElementById('scheduleDate').textContent = today.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
         document.getElementById('scheduleList').innerHTML = scheduleData.map(item => {
-            const [y,m,d] = item.date.split('-');
+            const [y, m, d] = item.date.split('-');
             return `<div class="sched-item">
                 <span class="date-lbl">📅 ${d}/${m}/${y}</span>
                 <span class="activity">${item.activity}</span>
@@ -1737,7 +1766,7 @@
         panel.classList.toggle('active');
         if (panel.classList.contains('active')) {
             syncPanelFromDashboard();
-            ['mocacinno','cappuccino','gdf','granule'].forEach(calculateDiff);
+            ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(calculateDiff);
             renderPosterUploadRows();
             renderVideoLinkRows();
         }
@@ -1746,26 +1775,25 @@
     function syncPanelFromDashboard() {
         if (chartInstance) {
             const d = chartInstance.data.datasets[0].data;
-            document.getElementById('edit-chart-mixing').value   = d[0] || 0;
-            document.getElementById('edit-chart-packing').value  = d[1] || 0;
-            document.getElementById('edit-chart-office').value   = d[2] || 0;
+            document.getElementById('edit-chart-mixing').value = d[0] || 0;
+            document.getElementById('edit-chart-packing').value = d[1] || 0;
+            document.getElementById('edit-chart-office').value = d[2] || 0;
         }
-        [1,2,3].forEach(n => {
-            const s = scheduleData[n-1] || {};
-            document.getElementById(`edit-schedule-date${n}`).value     = s.date     || '';
-            document.getElementById(`edit-schedule-activity${n}`).value  = s.activity || '';
-            document.getElementById(`edit-schedule-status${n}`).value    = s.status   || 'upcoming';
+        [1, 2, 3].forEach(n => {
+            const s = scheduleData[n - 1] || {};
+            document.getElementById(`edit-schedule-date${n}`).value = s.date || '';
+            document.getElementById(`edit-schedule-activity${n}`).value = s.activity || '';
+            document.getElementById(`edit-schedule-status${n}`).value = s.status || 'upcoming';
         });
-        document.getElementById('edit-announce-title').value    = announcementData.title    || '';
+        document.getElementById('edit-announce-title').value = announcementData.title || '';
         document.getElementById('edit-announce-subtitle').value = announcementData.subtitle || '';
-        document.getElementById('edit-announce-body').value     = announcementData.body     || '';
+        document.getElementById('edit-announce-body').value = announcementData.body || '';
     }
 
     // ============================================================
     // SAVE DATA
     // ============================================================
     function saveData() {
-        // 🔥 AMBIL LINK DARI INPUT (HANYA LINK, BUKAN DEFAULT)
         const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
         const newVideoData = [];
         videoInputs.forEach(input => {
@@ -1773,46 +1801,45 @@
                 newVideoData.push(input.value.trim());
             }
         });
-        
-        // 🔥 GABUNGKAN: LINK + DEFAULT
+
         const validLinks = newVideoData.filter(link => link && link.trim() !== '');
         videoData = [...validLinks, ...DEFAULT_VIDEOS];
 
-        ['mocacinno','cappuccino','gdf','granule'].forEach(calculateDiff);
+        ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(calculateDiff);
 
         if (chartInstance) {
             chartInstance.data.datasets[0].data = [
-                parseFloat(document.getElementById('edit-chart-mixing').value)   || 0,
-                parseFloat(document.getElementById('edit-chart-packing').value)  || 0,
-                parseFloat(document.getElementById('edit-chart-office').value)   || 0
+                parseFloat(document.getElementById('edit-chart-mixing').value) || 0,
+                parseFloat(document.getElementById('edit-chart-packing').value) || 0,
+                parseFloat(document.getElementById('edit-chart-office').value) || 0
             ];
             chartInstance.update();
         }
 
-        announcementData.title    = document.getElementById('edit-announce-title').value    || 'Pengumuman';
+        announcementData.title = document.getElementById('edit-announce-title').value || 'Pengumuman';
         announcementData.subtitle = document.getElementById('edit-announce-subtitle').value || '';
-        announcementData.body     = document.getElementById('edit-announce-body').value     || '';
+        announcementData.body = document.getElementById('edit-announce-body').value || '';
         renderAnnouncement();
 
-        scheduleData = [1,2,3].map(n => ({
-            date:     document.getElementById(`edit-schedule-date${n}`).value     || '',
+        scheduleData = [1, 2, 3].map(n => ({
+            date: document.getElementById(`edit-schedule-date${n}`).value || '',
             activity: document.getElementById(`edit-schedule-activity${n}`).value || '',
-            status:   document.getElementById(`edit-schedule-status${n}`).value
+            status: document.getElementById(`edit-schedule-status${n}`).value
         }));
         renderSchedule();
 
         renderPosterSlide();
         renderVideoSlide();
         renderRunningCards();
-        
-        // SIMPAN KE FIREBASE + LOCALSTORAGE
+
         const dashboardData = collectDashboardState();
         saveToCloud(dashboardData);
         saveToLocalStorage();
 
         document.querySelectorAll('.poster-wrapper,.announcement-wrapper,#video-card,#schedule-card').forEach(el => {
             el.classList.remove('data-updated');
-            requestAnimationFrame(() => { el.classList.add('data-updated'); setTimeout(() => el.classList.remove('data-updated'), 700); });
+            requestAnimationFrame(() => { el.classList.add('data-updated');
+                setTimeout(() => el.classList.remove('data-updated'), 700); });
         });
 
         setTimeout(toggleEditPanel, 400);
@@ -1825,7 +1852,8 @@
         const canvas = document.getElementById('chart5R');
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
-        if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+        if (chartInstance) { chartInstance.destroy();
+            chartInstance = null; }
 
         const isLarge = window.innerWidth >= 1920;
 
@@ -1836,12 +1864,12 @@
                 datasets: [{
                     label: 'Skor 5R',
                     data: [
-                        parseFloat(document.getElementById('edit-chart-mixing').value)  || 92.5,
+                        parseFloat(document.getElementById('edit-chart-mixing').value) || 92.5,
                         parseFloat(document.getElementById('edit-chart-packing').value) || 97.1,
-                        parseFloat(document.getElementById('edit-chart-office').value)  || 94.8
+                        parseFloat(document.getElementById('edit-chart-office').value) || 94.8
                     ],
-                    backgroundColor: ['rgba(52,211,153,0.85)','rgba(96,165,250,0.85)','rgba(251,191,36,0.85)'],
-                    borderColor:     ['rgba(52,211,153,1)',   'rgba(96,165,250,1)',   'rgba(251,191,36,1)'],
+                    backgroundColor: ['rgba(52,211,153,0.85)', 'rgba(96,165,250,0.85)', 'rgba(251,191,36,0.85)'],
+                    borderColor: ['rgba(52,211,153,1)', 'rgba(96,165,250,1)', 'rgba(251,191,36,1)'],
                     borderWidth: isLarge ? 3 : 2,
                     borderRadius: isLarge ? 10 : 6,
                     barPercentage: isLarge ? 0.65 : 0.5,
@@ -1895,7 +1923,7 @@
     // ============================================================
     window.addEventListener('load', async () => {
         console.log('🚀 Dashboard Loading...');
-        
+
         updateClock();
         updateDate();
         setInterval(updateClock, 1000);
@@ -1904,22 +1932,18 @@
         if (!posterImages.length) posterImages = ['', '', ''];
         if (!videoData.length) videoData = [];
 
-        // 1. COBA LOAD DARI FIREBASE
         const cloudLoaded = await loadFromCloud();
-        
-        // 2. JIKA GAGAL, COBA DARI LOCALSTORAGE
+
         if (!cloudLoaded) {
             const localLoaded = loadFromLocalStorage();
             if (!localLoaded) {
                 console.log('📥 Tidak ada data, pakai default...');
                 setDefaultData();
-                // SIMPAN DEFAULT KE CLOUD
                 await saveToCloud(collectDashboardState());
             }
         }
 
-        // RENDER SEMUA KOMPONEN
-        ['mocacinno','cappuccino','gdf','granule'].forEach(calculateDiff);
+        ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(calculateDiff);
         renderPosterSlide();
         renderAnnouncement();
         renderVideoSlide();
@@ -1928,22 +1952,57 @@
         renderPosterUploadRows();
         renderVideoLinkRows();
         initChart();
-        
+
         console.log('✅ Dashboard selesai dimuat!');
 
-        // HOVER PAUSE
+        document.addEventListener('click', function firstClick() {
+            playCurrentVideo();
+            document.removeEventListener('click', firstClick);
+        }, { once: true });
+
+        document.addEventListener('touchstart', function firstTouch() {
+            playCurrentVideo();
+            document.removeEventListener('touchstart', firstTouch);
+        }, { once: true });
+
+        database.ref('dashboardData').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                console.log('🔄 Real-time update detected!');
+                const oldVideoData = [...videoData];
+                const oldPosterImages = [...posterImages];
+                const oldScheduleData = [...scheduleData];
+                const oldAnnouncementData = {...announcementData };
+
+                applyDashboardState(data);
+
+                if (JSON.stringify(videoData) !== JSON.stringify(oldVideoData) ||
+                    JSON.stringify(posterImages) !== JSON.stringify(oldPosterImages) ||
+                    JSON.stringify(scheduleData) !== JSON.stringify(oldScheduleData) ||
+                    JSON.stringify(announcementData) !== JSON.stringify(oldAnnouncementData)) {
+
+                    console.log('🔄 Ada perubahan data, update dashboard...');
+                    renderVideoSlide();
+                    renderPosterSlide();
+                    renderAnnouncement();
+                    renderSchedule();
+                    renderRunningCards();
+                    initChart();
+                    showToast('🔄 Data diupdate dari cloud!');
+                }
+            }
+        });
+
         document.getElementById('posterSlideContainer').addEventListener('mouseenter', stopPosterAutoSlide);
         document.getElementById('posterSlideContainer').addEventListener('mouseleave', startPosterAutoSlide);
         document.getElementById('videoSlideContainer').addEventListener('mouseenter', stopVideoAutoSlide);
         document.getElementById('videoSlideContainer').addEventListener('mouseleave', startVideoAutoSlide);
 
-        // AUTO SAVE SETIAP 5 MENIT
-        setInterval(() => { 
-            saveToLocalStorage(); 
+        setInterval(() => {
+            saveToLocalStorage();
             saveToCloud(collectDashboardState());
         }, 300000);
 
-        // RESIZE HANDLER
         let resizeTimer;
         window.addEventListener('resize', () => {
             clearTimeout(resizeTimer);
