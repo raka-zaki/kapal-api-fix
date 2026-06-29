@@ -835,6 +835,7 @@
                 <div id="clock">00:00:00</div>
                 <span id="syncStatus" class="synced">🔄 Synced</span>
                 <button class="edit-btn-nav" onclick="toggleEditPanel()">✏️ Edit</button>
+                <button class="edit-btn-nav" style="border-color:#f59e0b;color:#f59e0b;" onclick="checkFirebaseData()">🔍 Check</button>
                 <button id="resetBtn" class="edit-btn-nav" style="border-color:#ef4444;color:#ef4444;" onclick="forceResetFirebase()">🔄 Reset</button>
             </div>
         </div>
@@ -1078,7 +1079,7 @@
 </div>
 
 <!-- ============================================================
-     JAVASCRIPT - FULL CODE DENGAN VERSIONING
+     JAVASCRIPT - FULL CODE
      ============================================================ -->
 <script>
     // ============================================================
@@ -1089,7 +1090,6 @@
         authDomain: "dashboard-produksi-330dd.firebaseapp.com",
         projectId: "dashboard-produksi-330dd",
         databaseURL: "https://dashboard-produksi-330dd-default-rtdb.asia-southeast1.firebasedatabase.app/",
-        storageBucket: "dashboard-produksi-330dd.firebasestorage.app",
         messagingSenderId: "136686452986",
         appId: "1:136686452986:web:6b39ce3b66b8520159c943",
         measurementId: "G-9PDYPG4B0L"
@@ -1111,8 +1111,6 @@
     let videoTimeout = null;
     let chartInstance = null;
     let videoDurations = [];
-
-    // 🔥 VERSIONING - KUNCI UTAMA
     let currentDataVersion = 0;
     let lastSyncedData = null;
 
@@ -1165,7 +1163,7 @@
             if (isConnected) {
                 statusEl.style.background = '#22c55e';
                 statusEl.style.boxShadow = '0 0 8px #22c55e';
-                console.log('🟢 Terhubung ke Firebase - auto sync aktif');
+                console.log('🟢 Terhubung ke Firebase');
                 updateSyncStatus('synced', 'Terhubung ke Firebase');
             } else {
                 statusEl.style.background = '#ef4444';
@@ -1177,49 +1175,28 @@
     }
 
     // ============================================================
-    // SAVE KE FIREBASE DENGAN VERSIONING
+    // SAVE KE FIREBASE
     // ============================================================
     async function saveToCloud(data) {
         try {
             updateSyncStatus('syncing', 'Menyimpan...');
             
-            // 🔥 INCREMENT VERSION
             currentDataVersion++;
             
-            // 🔥 TAMBAHKAN VERSION DAN TIMESTAMP
             const dataWithVersion = {
                 ...data,
                 _version: currentDataVersion,
                 _timestamp: firebase.database.ServerValue.TIMESTAMP,
-                _lastUpdated: new Date().toISOString(),
-                _updatedBy: navigator.userAgent || 'Unknown'
+                _lastUpdated: new Date().toISOString()
             };
             
             console.log('💾 Menyimpan versi:', currentDataVersion);
-            console.log('📦 Data yang disimpan:', dataWithVersion);
+            console.log('📦 Data:', dataWithVersion);
             
-            // 🔥 SIMPAN KE FIREBASE
             await database.ref('dashboardData').set(dataWithVersion);
             console.log('✅ Data versi', currentDataVersion, 'tersimpan!');
             showToast('✅ Data tersimpan di cloud! (v' + currentDataVersion + ')');
             updateSyncStatus('synced', 'v' + currentDataVersion + ' tersimpan');
-            
-            // 🔥 VERIFIKASI
-            setTimeout(async () => {
-                try {
-                    const verifySnapshot = await database.ref('dashboardData').once('value', {
-                        source: 'server'
-                    });
-                    const verifiedData = verifySnapshot.val();
-                    if (verifiedData && verifiedData._version === currentDataVersion) {
-                        console.log('✅ Verifikasi berhasil! Version:', verifiedData._version);
-                    } else {
-                        console.warn('⚠️ Verifikasi gagal! Version mismatch');
-                    }
-                } catch (e) {
-                    console.warn('Verifikasi error:', e);
-                }
-            }, 1000);
             
             return true;
         } catch (error) {
@@ -1231,26 +1208,15 @@
     }
 
     // ============================================================
-    // APPLY DATA - CEK VERSION
+    // APPLY DATA - PAKSA OVERRIDE
     // ============================================================
     function applyDashboardState(data) {
         if (!data) return;
         
-        // 🔥 CEK VERSION - Hanya update jika version lebih baru
-        const newVersion = data._version || 0;
-        console.log('📊 Version saat ini:', currentDataVersion, 'Version baru:', newVersion);
-        
-        if (newVersion <= currentDataVersion && currentDataVersion > 0) {
-            console.log('⏭️ Skip update - version lebih lama atau sama');
-            return;
-        }
-        
-        // 🔥 UPDATE VERSION
-        currentDataVersion = newVersion;
-        console.log('🔄 Update ke version:', currentDataVersion);
+        currentDataVersion = data._version || 0;
+        console.log('🔄 APPLY DATA - Version:', currentDataVersion);
         console.log('🕐 Last updated:', data._lastUpdated);
         
-        // Update semua data
         if (data.posterImages !== undefined) {
             posterImages = data.posterImages || [];
             console.log('📸 Poster images:', posterImages.length);
@@ -1270,7 +1236,7 @@
             const savedLinks = data.videoData || [];
             const validLinks = savedLinks.filter(link => link && link.trim() !== '');
             videoData = [...validLinks, ...DEFAULT_VIDEOS];
-            console.log('📦 Video dari Firebase:', validLinks.length);
+            console.log('📦 VIDEO dari Firebase:', validLinks);
             console.log('📦 Total video:', videoData.length);
         }
 
@@ -1295,112 +1261,119 @@
             if (elOffice) elOffice.value = data.chartData.office || 94.8;
         }
         
-        // 🔥 SIMPAN DATA TERAKHIR UNTUK REFERENCE
+        // RENDER ULANG SEMUA KOMPONEN
+        renderVideoSlide();
+        renderPosterSlide();
+        renderAnnouncement();
+        renderSchedule();
+        renderRunningCards();
+        initChart();
+        
         lastSyncedData = data;
     }
 
     // ============================================================
-    // REAL-TIME LISTENER DENGAN VERSION CHECK
-    // ============================================================
-    function setupRealtimeListener() {
-        // Hapus listener lama
-        if (window._firebaseListener) {
-            database.ref('dashboardData').off('value', window._firebaseListener);
-            console.log('🔴 Listener lama dihapus');
-        }
-        
-        // 🔥 LISTENER UTAMA
-        window._firebaseListener = function(snapshot) {
-            const data = snapshot.val();
-            if (!data) {
-                console.log('⚠️ Tidak ada data di Firebase');
-                updateSyncStatus('error', 'Tidak ada data');
-                return;
-            }
-            
-            const newVersion = data._version || 0;
-            console.log('🔄 Real-time update dari Firebase - Version:', newVersion);
-            console.log('🕐 Last updated:', data._lastUpdated);
-            
-            // 🔥 CEK VERSION - Hanya update jika lebih baru
-            if (newVersion <= currentDataVersion && currentDataVersion > 0) {
-                console.log('⏭️ Skip update - version sama atau lebih lama');
-                updateSyncStatus('synced', 'Sudah terbaru (v' + currentDataVersion + ')');
-                return;
-            }
-            
-            updateSyncStatus('syncing', 'Menerima update v' + newVersion + '...');
-            
-            // Simpan state lama
-            const oldVideoData = [...videoData];
-            const oldPosterImages = [...posterImages];
-            const oldScheduleData = [...scheduleData];
-            const oldAnnouncementData = {...announcementData};
-            
-            // 🔥 TERAPKAN DATA BARU
-            applyDashboardState(data);
-            
-            // 🔥 RENDER ULANG SEMUA KOMPONEN
-            renderVideoSlide();
-            renderPosterSlide();
-            renderAnnouncement();
-            renderSchedule();
-            renderRunningCards();
-            initChart();
-            
-            // Tampilkan notifikasi
-            showToast('🔄 Data diupdate dari cloud! (v' + newVersion + ')');
-            updateSyncStatus('synced', 'v' + newVersion + ' - ' + (data._lastUpdated || 'now'));
-            
-            // Animasi highlight
-            document.querySelectorAll('.poster-wrapper,.announcement-wrapper,#video-card,#schedule-card').forEach(el => {
-                el.classList.remove('data-updated');
-                setTimeout(() => {
-                    el.classList.add('data-updated');
-                    setTimeout(() => el.classList.remove('data-updated'), 700);
-                }, 50);
-            });
-        };
-        
-        // 🔥 PASANG LISTENER
-        database.ref('dashboardData').on('value', window._firebaseListener);
-        console.log('🟢 Real-time listener terpasang - auto sync aktif!');
-        updateSyncStatus('synced', 'Auto-sync aktif');
-    }
-
-    // ============================================================
-    // LOAD DATA PERTAMA KALI
+    // LOAD DATA PERTAMA KALI - PRIORITAS FIREBASE
     // ============================================================
     async function loadInitialData() {
         try {
-            updateSyncStatus('syncing', 'Memuat data...');
-            const snapshot = await database.ref('dashboardData').once('value', {
-                source: 'server'
-            });
+            updateSyncStatus('syncing', 'Memuat data dari Firebase...');
+            
+            // 🔥 CARA PALING SEDERHANA - TANPA PARAMETER
+            const snapshot = await database.ref('dashboardData').once('value');
             const data = snapshot.val();
             
             if (data) {
-                console.log('📥 Data awal dari Firebase:', data);
+                console.log('📥 DATA DARI FIREBASE:', data);
                 console.log('📊 Version:', data._version || 0);
                 console.log('🕐 Last updated:', data._lastUpdated);
+                console.log('📹 Videos:', data.videoData);
                 
                 applyDashboardState(data);
-                updateSyncStatus('synced', 'v' + (data._version || 0) + ' dimuat');
+                updateSyncStatus('synced', 'v' + (data._version || 0) + ' dari Firebase');
                 return true;
             }
             return false;
         } catch (error) {
-            console.warn('Gagal load dari Firebase:', error);
-            updateSyncStatus('error', 'Gagal memuat data');
+            console.warn('❌ Gagal load dari Firebase:', error);
+            updateSyncStatus('error', 'Gagal memuat dari Firebase');
             return false;
         }
     }
 
     // ============================================================
-    // FORCE RESET - HAPUS DATA LAMA DI FIREBASE
+    // CHECK FIREBASE DATA
+    // ============================================================
+    async function checkFirebaseData() {
+        try {
+            console.log('🔍 Mengecek data di Firebase...');
+            
+            // 🔥 CARA PALING SEDERHANA
+            const snapshot = await database.ref('dashboardData').once('value');
+            const data = snapshot.val();
+            
+            console.log('📊 DATA DI FIREBASE:');
+            console.log('📦 Data:', data);
+            console.log('📊 Version:', data?._version || 'Tidak ada');
+            console.log('🕐 Last updated:', data?._lastUpdated || 'Tidak ada');
+            console.log('📹 Videos:', data?.videoData || []);
+            console.log('📸 Posters:', data?.posterImages?.length || 0);
+            
+            if (data) {
+                const msg = `✅ Data di Firebase:\n\n` +
+                           `📊 Version: ${data._version || 'Tidak ada'}\n` +
+                           `🕐 Last updated: ${data._lastUpdated || 'Tidak ada'}\n` +
+                           `📹 Jumlah video: ${data.videoData?.length || 0}\n` +
+                           `📸 Jumlah poster: ${data.posterImages?.length || 0}\n\n` +
+                           `📹 Video list: ${JSON.stringify(data.videoData || [])}`;
+                alert(msg);
+            } else {
+                alert('⚠️ Tidak ada data di Firebase');
+            }
+            
+            return data;
+        } catch (error) {
+            console.error('❌ Error checking Firebase:', error);
+            alert('❌ Gagal cek data di Firebase!\n\nError: ' + error.message);
+            return null;
+        }
+    }
+
+    // ============================================================
+    // FORCE REFRESH
+    // ============================================================
+    async function forceRefresh() {
+        showToast('🔄 Merefresh dari Firebase...');
+        updateSyncStatus('syncing', 'Merefresh...');
+        
+        try {
+            // 🔥 CARA PALING SEDERHANA
+            const snapshot = await database.ref('dashboardData').once('value');
+            const data = snapshot.val();
+            
+            if (data) {
+                console.log('🔄 FORCE REFRESH - Data dari Firebase:', data);
+                currentDataVersion = 0;
+                applyDashboardState(data);
+                showToast('✅ Data direfresh! (v' + (data._version || 0) + ')');
+                updateSyncStatus('synced', 'v' + (data._version || 0) + ' - refreshed');
+                return true;
+            }
+            showToast('⚠️ Tidak ada data di Firebase', true);
+            return false;
+        } catch (error) {
+            console.error('❌ Refresh error:', error);
+            showToast('❌ Gagal refresh!', true);
+            updateSyncStatus('error', 'Refresh gagal');
+            return false;
+        }
+    }
+
+    // ============================================================
+    // FORCE RESET
     // ============================================================
     async function forceResetFirebase() {
-        if (!confirm('⚠️ Yakin ingin mereset data di Firebase?\n\nData lama akan dihapus dan diganti dengan data default!\n\nIni hanya perlu dilakukan 1 KALI jika ada masalah data.')) {
+        if (!confirm('⚠️ Yakin ingin mereset data?\n\n- Data di Firebase akan dihapus\n- Dashboard akan reload dengan data default\n\nIni hanya perlu dilakukan 1 KALI jika ada masalah data.')) {
             return;
         }
         
@@ -1408,15 +1381,11 @@
             showToast('🔄 Mereset data...');
             updateSyncStatus('syncing', 'Resetting...');
             
-            // 🔥 RESET VERSION
             currentDataVersion = 0;
-            
-            // 🔥 SIMPAN DATA DEFAULT DENGAN VERSION BARU
             setDefaultData();
             const data = collectDashboardState();
             await saveToCloud(data);
             
-            // 🔥 RENDER ULANG
             renderVideoSlide();
             renderPosterSlide();
             renderAnnouncement();
@@ -1426,11 +1395,66 @@
             
             showToast('✅ Data direset! (v' + currentDataVersion + ')');
             updateSyncStatus('synced', 'Reset selesai - v' + currentDataVersion);
+            
+            setTimeout(() => {
+                location.reload();
+            }, 1500);
+            
         } catch (error) {
             console.error('❌ Reset error:', error);
             showToast('❌ Gagal reset!', true);
             updateSyncStatus('error', 'Reset gagal');
         }
+    }
+
+    // ============================================================
+    // REAL-TIME LISTENER
+    // ============================================================
+    function setupRealtimeListener() {
+        if (window._firebaseListener) {
+            database.ref('dashboardData').off('value', window._firebaseListener);
+            console.log('🔴 Listener lama dihapus');
+        }
+        
+        window._firebaseListener = function(snapshot) {
+            try {
+                const data = snapshot.val();
+                if (!data) {
+                    console.log('⚠️ Tidak ada data di Firebase');
+                    return;
+                }
+                
+                const newVersion = data._version || 0;
+                console.log('🔄 Real-time update - Version:', newVersion);
+                console.log('🕐 Last updated:', data._lastUpdated);
+                
+                if (newVersion <= currentDataVersion && currentDataVersion > 0) {
+                    console.log('⏭️ Skip - version sama atau lebih lama');
+                    return;
+                }
+                
+                updateSyncStatus('syncing', 'Menerima update v' + newVersion + '...');
+                
+                applyDashboardState(data);
+                
+                showToast('🔄 Data diupdate dari cloud! (v' + newVersion + ')');
+                updateSyncStatus('synced', 'v' + newVersion + ' - ' + (data._lastUpdated || 'now'));
+                
+                document.querySelectorAll('.poster-wrapper,.announcement-wrapper,#video-card,#schedule-card').forEach(el => {
+                    el.classList.remove('data-updated');
+                    setTimeout(() => {
+                        el.classList.add('data-updated');
+                        setTimeout(() => el.classList.remove('data-updated'), 700);
+                    }, 50);
+                });
+            } catch (error) {
+                console.error('❌ Error dalam listener:', error);
+            }
+        };
+        
+        database.ref('dashboardData').on('value', window._firebaseListener);
+        console.log('🟢 Real-time listener terpasang!');
+        updateSyncStatus('synced', 'Auto-sync aktif');
     }
 
     // ============================================================
@@ -1466,7 +1490,8 @@
             chartData: {
                 mixing: document.getElementById('edit-chart-mixing').value,
                 packing: document.getElementById('edit-chart-packing').value,
-                office: document.getElementById('edit-chart-office').value            }
+                office: document.getElementById('edit-chart-office').value
+            }
         };
     }
 
@@ -2013,7 +2038,6 @@
     function saveData() {
         console.log('💾 Menyimpan data ke Firebase...');
         
-        // Kumpulkan semua data
         const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
         const newVideoData = [];
         videoInputs.forEach(input => {
@@ -2051,12 +2075,9 @@
         renderVideoSlide();
         renderRunningCards();
 
-        // 🔥 SIMPAN KE FIREBASE DENGAN VERSIONING
         const dashboardData = collectDashboardState();
         saveToCloud(dashboardData);
-        saveToLocalStorage();
 
-        // Animasi
         document.querySelectorAll('.poster-wrapper,.announcement-wrapper,#video-card,#schedule-card').forEach(el => {
             el.classList.remove('data-updated');
             requestAnimationFrame(() => { 
@@ -2066,22 +2087,6 @@
         });
 
         setTimeout(toggleEditPanel, 400);
-    }
-
-    // ============================================================
-    // LOCAL STORAGE BACKUP
-    // ============================================================
-    function saveToLocalStorage() {
-        try { localStorage.setItem('dashboardData', JSON.stringify(collectDashboardState())); } catch {}
-    }
-
-    function loadFromLocalStorage() {
-        try {
-            const s = localStorage.getItem('dashboardData');
-            if (!s) return false;
-            applyDashboardState(JSON.parse(s));
-            return true;
-        } catch { return false; }
     }
 
     // ============================================================
@@ -2161,42 +2166,49 @@
     // ============================================================
     window.addEventListener('load', async () => {
         console.log('🚀 Dashboard Loading...');
-        console.log('🔄 Auto-sync dengan versioning aktif!');
+        console.log('🔄 Akan memuat data terakhir dari Firebase...');
+        
+        // 🔥 TAMPILKAN DATA DEFAULT DULU
+        setDefaultData();
+        renderVideoSlide();
+        renderPosterSlide();
+        renderAnnouncement();
+        renderSchedule();
+        renderRunningCards();
+        initChart();
 
         updateClock();
         updateDate();
         setInterval(updateClock, 1000);
         setInterval(updateDate, 60000);
 
-        // Setup connection status
         setupConnectionStatus();
 
-        // 🔥 LOAD DATA PERTAMA
-        const dataLoaded = await loadInitialData();
-
-        if (!dataLoaded) {
-            console.log('📥 Tidak ada data di Firebase, pakai default...');
-            setDefaultData();
-            await saveToCloud(collectDashboardState());
+        // 🔥 LOAD DATA DARI FIREBASE - INI YANG PALING PENTING
+        try {
+            const dataLoaded = await loadInitialData();
+            if (dataLoaded) {
+                console.log('✅ Data berhasil dimuat dari Firebase!');
+                console.log('📹 Video terakhir:', videoData);
+            } else {
+                console.log('📥 Tidak ada data di Firebase, pakai default...');
+                await saveToCloud(collectDashboardState());
+            }
+        } catch (error) {
+            console.error('❌ Error saat load data:', error);
+            showToast('⚠️ Gagal load data dari Firebase, pakai default', true);
         }
 
-        // Render semua komponen
-        ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(calculateDiff);
-        renderPosterSlide();
-        renderAnnouncement();
-        renderVideoSlide();
-        renderSchedule();
-        renderRunningCards();
-        renderPosterUploadRows();
-        renderVideoLinkRows();
-        initChart();
+        // 🔥 PASANG REAL-TIME LISTENER
+        try {
+            setupRealtimeListener();
+        } catch (error) {
+            console.error('❌ Error pasang listener:', error);
+        }
 
         console.log('✅ Dashboard selesai dimuat! - Version:', currentDataVersion);
 
-        // 🔥 PASANG REAL-TIME LISTENER
-        setupRealtimeListener();
-
-        // Auto-play pertama kali
+        // AUTO-PLAY
         document.addEventListener('click', function firstClick() {
             playCurrentVideo();
             document.removeEventListener('click', firstClick);
@@ -2237,24 +2249,9 @@
         if (e.key === 'r' || e.key === 'R') {
             if (!e.ctrlKey && !e.metaKey) {
                 e.preventDefault();
-                loadInitialData().then(() => {
-                    renderVideoSlide();
-                    renderPosterSlide();
-                    renderAnnouncement();
-                    renderSchedule();
-                    renderRunningCards();
-                    initChart();
-                    showToast('🔄 Data direfresh! (v' + currentDataVersion + ')');
-                });
+                forceRefresh();
             }
         }
-    });
-
-    // ============================================================
-    // BEFORE UNLOAD
-    // ============================================================
-    window.addEventListener('beforeunload', () => {
-        saveToLocalStorage();
     });
 
     // ============================================================
@@ -2281,17 +2278,13 @@
     window.onVideoEnded = onVideoEnded;
     window.playCurrentVideo = playCurrentVideo;
     window.forceResetFirebase = forceResetFirebase;
-    window.forceRefresh = async function() {
-        showToast('🔄 Merefresh...');
-        await loadInitialData();
-        renderVideoSlide();
-        renderPosterSlide();
-        renderAnnouncement();
-        renderSchedule();
-        renderRunningCards();
-        initChart();
-        showToast('✅ Data direfresh! (v' + currentDataVersion + ')');
-    };
+    window.checkFirebaseData = checkFirebaseData;
+    window.forceRefresh = forceRefresh;
+    
+    console.log('🔥 Dashboard siap!');
+    console.log('📌 Gunakan checkFirebaseData() untuk cek data di Firebase');
+    console.log('📌 Tekan R untuk refresh data');
+    console.log('📌 Klik Reset jika data bermasalah (hanya 1 kali)');
 </script>
 
 </body>
