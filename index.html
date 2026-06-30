@@ -539,7 +539,7 @@
 </div>
 
 <!-- ============================================================
-     JAVASCRIPT - FULL CODE DENGAN VERSIONING DAN ANTI OVERRIDE
+     JAVASCRIPT - FULL CODE DENGAN VERSIONING DAN UPDATE
      ============================================================ -->
 <script>
     // ============================================================
@@ -631,26 +631,15 @@
     }
 
     // ============================================================
-    // SAVE KE FIREBASE DENGAN VERSION CHECK (ANTI OVERRIDE)
+    // SAVE KE FIREBASE DENGAN VERSION CHECK
     // ============================================================
     async function saveToCloud(data) {
         try {
             updateSyncStatus('syncing', 'Menyimpan...');
             
-            // 🔥 CEK VERSION TERAKHIR DI FIREBASE
+            // CEK VERSION TERAKHIR DI FIREBASE
             const snapshot = await database.ref('dashboardData/_version').once('value');
             const lastVersion = snapshot.val() || 0;
-            
-            // 🔥 JIKA DATA YANG DISIMPAN VERSION-NYA LEBIH RENDAH, TOLAK!
-            const newVersion = data._version || 0;
-            
-            if (newVersion < lastVersion && lastVersion > 0) {
-                console.warn('⚠️ Data yang akan disimpan lebih lama (v' + newVersion + ' < v' + lastVersion + ')');
-                console.warn('⚠️ Skip save untuk mencegah override!');
-                showToast('⚠️ Data lebih baru sudah ada! (v' + lastVersion + ')', true);
-                updateSyncStatus('error', 'Data lebih baru ada (v' + lastVersion + ')');
-                return false;
-            }
             
             const finalVersion = lastVersion + 1;
             const dataWithVersion = {
@@ -677,44 +666,38 @@
     }
 
     // ============================================================
-    // APPLY DATA - PAKSA OVERRIDE DENGAN DATA TERBARU
+    // APPLY DATA
     // ============================================================
     function applyDashboardState(data) {
         if (!data) return;
         
-        // 🔥 UPDATE VERSION - PAKSA PAKAI DATA TERBARU
         currentDataVersion = data._version || 0;
         console.log('🔄 APPLY DATA - Version:', currentDataVersion);
         console.log('🕐 Last updated:', data._lastUpdated);
         
-        // 🔥 UPDATE POSTER
         if (data.posterImages !== undefined) {
             posterImages = data.posterImages || [];
             console.log('📸 Poster images:', posterImages.length);
         }
         
-        // 🔥 UPDATE SCHEDULE
         if (data.scheduleData !== undefined) {
             scheduleData = data.scheduleData || [];
             console.log('📋 Schedule data:', scheduleData.length);
         }
         
-        // 🔥 UPDATE ANNOUNCEMENT
         if (data.announcementData !== undefined) {
             announcementData = data.announcementData || {};
             console.log('📢 Announcement:', announcementData.title);
         }
 
-        // 🔥 UPDATE VIDEO - PALING PENTING
         if (data.videoData !== undefined) {
             const savedLinks = data.videoData || [];
             const validLinks = savedLinks.filter(link => link && link.trim() !== '');
             videoData = [...validLinks, ...DEFAULT_VIDEOS];
-            console.log('📦 VIDEO dari Firebase (TERAKHIR):', validLinks);
+            console.log('📦 VIDEO dari Firebase:', validLinks);
             console.log('📦 Total video:', videoData.length);
         }
 
-        // 🔥 UPDATE RUNNING DATA
         if (data.runningData) {
             ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(id => {
                 if (!data.runningData[id]) return;
@@ -727,7 +710,6 @@
             });
         }
         
-        // 🔥 UPDATE CHART
         if (data.chartData) {
             const elMixing = document.getElementById('edit-chart-mixing');
             const elPacking = document.getElementById('edit-chart-packing');
@@ -737,7 +719,6 @@
             if (elOffice) elOffice.value = data.chartData.office || 94.8;
         }
         
-        // 🔥 RENDER ULANG SEMUA KOMPONEN DENGAN DATA TERBARU
         renderVideoSlide();
         renderPosterSlide();
         renderAnnouncement();
@@ -749,13 +730,12 @@
     }
 
     // ============================================================
-    // LOAD DATA PERTAMA KALI - PASTIKAN AMBIL DATA TERAKHIR
+    // LOAD DATA PERTAMA KALI
     // ============================================================
     async function loadInitialData() {
         try {
             updateSyncStatus('syncing', 'Memuat data terakhir dari Firebase...');
             
-            // 🔥 AMBIL DATA DARI FIREBASE
             const snapshot = await database.ref('dashboardData').once('value');
             const data = snapshot.val();
             
@@ -765,8 +745,7 @@
                 console.log('🕐 Last updated:', data._lastUpdated);
                 console.log('📹 Videos:', data.videoData);
                 
-                // 🔥 RESET VERSION KE 0 DULU, LALU APPLY
-                currentDataVersion = 0;
+                currentDataVersion = data._version;
                 applyDashboardState(data);
                 
                 updateSyncStatus('synced', 'v' + data._version + ' dari Firebase (TERAKHIR)');
@@ -775,12 +754,10 @@
                 console.warn('⚠️ Data di Firebase tidak valid (version:', data?._version, ')');
                 console.log('📥 Membuat data default dengan version 1...');
                 
-                // 🔥 BUAT DATA DEFAULT DENGAN VERSION 1
                 setDefaultData();
                 const defaultData = collectDashboardState();
                 await saveToCloud(defaultData);
                 
-                // 🔥 RELOAD
                 return await loadInitialData();
             }
         } catch (error) {
@@ -819,7 +796,7 @@
     }
 
     // ============================================================
-    // FORCE REFRESH - PAKSA AMBIL DATA TERBARU
+    // FORCE REFRESH
     // ============================================================
     async function forceRefresh() {
         showToast('🔄 Merefresh data terbaru dari Firebase...');
@@ -830,14 +807,11 @@
             const data = snapshot.val();
             
             if (data && data._version && data._version > 0) {
-                console.log('🔄 FORCE REFRESH - Data terbaru dari Firebase:', data);
+                console.log('🔄 FORCE REFRESH - Data terbaru:', data);
                 console.log('📊 Version:', data._version);
                 console.log('🕐 Last updated:', data._lastUpdated);
                 
-                // 🔥 RESET VERSION DULU
-                currentDataVersion = 0;
-                
-                // 🔥 APPLY DATA TERBARU
+                currentDataVersion = data._version;
                 applyDashboardState(data);
                 
                 showToast('✅ Data direfresh! (v' + data._version + ')');
@@ -866,11 +840,9 @@
             updateSyncStatus('syncing', 'Resetting...');
             currentDataVersion = 0;
             
-            // 🔥 HAPUS DATA LAMA
             await database.ref('dashboardData').remove();
             console.log('✅ Data lama dihapus');
             
-            // 🔥 BUAT DATA DEFAULT DENGAN VERSION 1
             setDefaultData();
             const data = collectDashboardState();
             await saveToCloud(data);
@@ -885,7 +857,6 @@
             showToast('✅ Data direset! (v' + currentDataVersion + ')');
             updateSyncStatus('synced', 'Reset selesai - v' + currentDataVersion);
             
-            // 🔥 RELOAD SETELAH 2 DETIK
             setTimeout(() => { location.reload(); }, 2000);
         } catch (error) {
             console.error('❌ Reset error:', error);
@@ -895,7 +866,7 @@
     }
 
     // ============================================================
-    // REAL-TIME LISTENER - UPDATE HANYA JIKA VERSION LEBIH BARU
+    // REAL-TIME LISTENER
     // ============================================================
     function setupRealtimeListener() {
         if (window._firebaseListener) {
@@ -915,18 +886,15 @@
                 console.log('🔄 Real-time update - Version:', newVersion);
                 console.log('🕐 Last updated:', data._lastUpdated);
                 
-                // 🔥 CEK VERSION - UPDATE JIKA LEBIH BARU
                 if (newVersion > currentDataVersion) {
                     console.log('✅ Ada update baru! Version:', newVersion);
                     updateSyncStatus('syncing', 'Menerima update v' + newVersion + '...');
                     
-                    // 🔥 APPLY DATA BARU
                     applyDashboardState(data);
                     
                     showToast('🔄 Data diupdate dari cloud! (v' + newVersion + ')');
                     updateSyncStatus('synced', 'v' + newVersion + ' - ' + (data._lastUpdated || 'now'));
                     
-                    // 🔥 ANIMASI HIGHLIGHT
                     document.querySelectorAll('.poster-wrapper,.announcement-wrapper,#video-card,#schedule-card').forEach(el => {
                         el.classList.remove('data-updated');
                         setTimeout(() => {
@@ -1126,14 +1094,11 @@
     }
 
     // ============================================================
-    // VIDEO HANDLERS - FIX FOR BACKGROUND PLAYBACK
+    // VIDEO HANDLERS
     // ============================================================
 
-    // PLAY CURRENT VIDEO
     function playCurrentVideo() {
         const videos = document.querySelectorAll('#videoSlides video');
-        let hasPlaying = false;
-        
         videos.forEach((video, index) => {
             if (index === currentVideoSlide) {
                 video.muted = true;
@@ -1145,7 +1110,6 @@
                     video.loop = false;
                 }
                 
-                // 🔥 CEK APAKAH VIDEO BERHENTI
                 if (video.paused || video.ended) {
                     console.log(`🔄 Video ${index + 1} berhenti, restart...`);
                     video.currentTime = 0;
@@ -1158,7 +1122,6 @@
                             }, 500);
                         });
                     }
-                    hasPlaying = true;
                 } else {
                     if (video.readyState >= 2) {
                         const playPromise = video.play();
@@ -1168,7 +1131,6 @@
                             });
                         }
                     }
-                    hasPlaying = true;
                 }
             } else {
                 video.pause();
@@ -1176,7 +1138,6 @@
         });
     }
 
-    // VIDEO HEALTH CHECK - CEK SETIAP 2 DETIK
     function startVideoHealthCheck() {
         stopVideoHealthCheck();
         videoCheckInterval = setInterval(() => {
@@ -1207,7 +1168,6 @@
         }
     }
 
-    // VISIBILITY HANDLER - TAB AKTIF/KELUAR
     function setupVisibilityHandler() {
         document.addEventListener('visibilitychange', function() {
             if (!document.hidden) {
@@ -1225,7 +1185,6 @@
         });
     }
 
-    // PAGE VISIBILITY CHECK
     function setupPageVisibilityHandler() {
         setInterval(() => {
             if (!document.hidden) {
@@ -1240,7 +1199,6 @@
         }, 5000);
     }
 
-    // NETWORK HANDLER
     function setupNetworkHandler() {
         window.addEventListener('online', function() {
             console.log('🔄 Koneksi kembali online, restart video...');
@@ -1251,7 +1209,6 @@
         });
     }
 
-    // ON VIDEO PAUSE
     function onVideoPause(index) {
         if (index === currentVideoSlide) {
             console.log(`⏸️ Video ${index + 1} pause, coba play ulang...`);
@@ -1264,7 +1221,6 @@
         }
     }
 
-    // ON VIDEO WAITING
     function onVideoWaiting(index) {
         if (index === currentVideoSlide) {
             console.log(`⏳ Video ${index + 1} buffering...`);
@@ -1280,7 +1236,6 @@
         }
     }
 
-    // ON VIDEO ENDED
     function onVideoEnded(index) {
         console.log(`📹 Video ${index + 1} selesai diputar`);
         if (videoData.length === 1) {
@@ -1294,7 +1249,6 @@
         }
     }
 
-    // HANDLE VIDEO METADATA
     function handleVideoMetadata(index, duration) {
         if (duration && duration > 0 && !isNaN(duration)) {
             videoDurations[index] = duration;
@@ -1308,7 +1262,6 @@
         }
     }
 
-    // HANDLE VIDEO ERROR
     function handleVideoError(index) {
         console.warn(`⚠️ Error loading video ${index + 1}`);
         if (!videoDurations[index]) {
@@ -1333,7 +1286,6 @@
         }, 3000);
     }
 
-    // RENDER VIDEO SLIDE
     function renderVideoSlide() {
         const container = document.getElementById('videoSlides');
         const inds = document.getElementById('videoIndicators');
@@ -1386,7 +1338,6 @@
         }, 300);
     }
 
-    // INITIALIZE VIDEO PLAYER
     function initializeVideoPlayer() {
         const videoElements = document.querySelectorAll('#videoSlides video');
         videoElements.forEach((video, index) => {
@@ -1404,7 +1355,6 @@
         }, 100);
     }
 
-    // START VIDEO AUTO SLIDE
     function startVideoAutoSlide() {
         stopVideoAutoSlide();
         if (videoData.length <= 1) {
@@ -1414,7 +1364,6 @@
         console.log('▶️ Auto-slide dimulai (menggunakan event onended)');
     }
 
-    // STOP VIDEO AUTO SLIDE
     function stopVideoAutoSlide() {
         if (videoTimeout) {
             clearTimeout(videoTimeout);
@@ -1423,7 +1372,6 @@
         }
     }
 
-    // GO TO VIDEO SLIDE
     function goToVideoSlide(index) {
         if (!videoData.length) return;
         index = ((index % videoData.length) + videoData.length) % videoData.length;
@@ -1644,7 +1592,7 @@
     }
 
     // ============================================================
-    // SAVE DATA DENGAN VERSION CHECK
+    // SAVE DATA - FIXED VERSION
     // ============================================================
     function saveData() {
         console.log('💾 Menyimpan data ke Firebase...');
@@ -1653,7 +1601,8 @@
         database.ref('dashboardData/_version').once('value')
             .then(snapshot => {
                 const lastVersion = snapshot.val() || 0;
-                console.log('📊 Version terakhir di Firebase:', lastVersion);
+                const newVersion = lastVersion + 1;
+                console.log('📊 Version baru:', newVersion);
                 
                 // Kumpulkan data
                 const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
@@ -1698,20 +1647,25 @@
                 // 🔥 SAVE DENGAN VERSION BARU
                 const dataWithVersion = {
                     ...dashboardData,
-                    _version: lastVersion + 1,
+                    _version: newVersion,
                     _timestamp: firebase.database.ServerValue.TIMESTAMP,
                     _lastUpdated: new Date().toISOString()
                 };
                 
-                return database.ref('dashboardData').set(dataWithVersion);
+                // 🔥 PERBAIKAN: Gunakan update() agar tidak menimpa seluruh data
+                return database.ref('dashboardData').update(dataWithVersion);
             })
             .then(() => {
                 console.log('✅ Data tersimpan!');
                 showToast('✅ Data tersimpan di cloud!');
                 updateSyncStatus('synced', 'Data tersimpan');
                 
-                // 🔥 UPDATE CURRENT VERSION
-                currentDataVersion++;
+                // 🔥 AMBIL VERSION TERBARU
+                database.ref('dashboardData/_version').once('value')
+                    .then(snapshot => {
+                        currentDataVersion = snapshot.val() || 0;
+                        console.log('📊 Version terbaru:', currentDataVersion);
+                    });
                 
                 document.querySelectorAll('.poster-wrapper,.announcement-wrapper,#video-card,#schedule-card').forEach(el => {
                     el.classList.remove('data-updated');
@@ -1804,15 +1758,13 @@
     }
 
     // ============================================================
-    // INIT - LOAD DATA TERAKHIR
+    // INIT
     // ============================================================
     window.addEventListener('load', async () => {
         console.log('🚀 Dashboard Loading...');
         console.log('🔄 Akan memuat DATA TERAKHIR dari Firebase...');
-        console.log('🎬 Video Health Check AKTIF - video akan tetap berjalan');
-        console.log('🔒 Anti-override aktif - data terbaru akan selalu dipertahankan');
+        console.log('🔒 Anti-override aktif');
         
-        // 🔥 TAMPILKAN DATA DEFAULT DULU (UNTUK LOADING)
         setDefaultData();
         renderVideoSlide();
         renderPosterSlide();
@@ -1828,15 +1780,14 @@
 
         setupConnectionStatus();
 
-        // 🔥 LOAD DATA DARI FIREBASE - INI YANG PALING PENTING
         try {
             const dataLoaded = await loadInitialData();
             if (dataLoaded) {
-                console.log('✅ DATA TERAKHIR berhasil dimuat dari Firebase!');
+                console.log('✅ DATA TERAKHIR berhasil dimuat!');
                 console.log('📹 Video terakhir:', videoData);
                 console.log('📊 Version terakhir:', currentDataVersion);
             } else {
-                console.log('📥 Tidak ada data di Firebase, pakai default...');
+                console.log('📥 Tidak ada data, pakai default...');
                 await saveToCloud(collectDashboardState());
             }
         } catch (error) {
@@ -1844,14 +1795,12 @@
             showToast('⚠️ Gagal load data dari Firebase, pakai default', true);
         }
 
-        // 🔥 PASANG REAL-TIME LISTENER
         try {
             setupRealtimeListener();
         } catch (error) {
             console.error('❌ Error pasang listener:', error);
         }
 
-        // 🔥 SETUP VIDEO HANDLER
         setupVisibilityHandler();
         setupPageVisibilityHandler();
         setupNetworkHandler();
@@ -1859,7 +1808,6 @@
 
         console.log('✅ Dashboard selesai dimuat! - Version:', currentDataVersion);
 
-        // AUTO-PLAY
         document.addEventListener('click', function firstClick() {
             playCurrentVideo();
             document.removeEventListener('click', firstClick);
@@ -1937,10 +1885,7 @@
     console.log('🔥 Dashboard siap!');
     console.log('📌 Gunakan checkFirebaseData() untuk cek data di Firebase');
     console.log('📌 Tekan R untuk refresh data');
-    console.log('📌 Video Health Check: Setiap 2 detik cek status video');
-    console.log('📌 Tab aktif/kembali: Video akan restart otomatis');
-    console.log('📌 Data TERAKHIR dari Firebase akan selalu dimuat saat buka tab baru');
-    console.log('🔒 Anti-override aktif - data dengan version lebih tinggi akan dipertahankan');
+    console.log('📌 Data TERAKHIR dari Firebase akan selalu dimuat');
 </script>
 
 </body>
