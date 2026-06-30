@@ -539,7 +539,7 @@
 </div>
 
 <!-- ============================================================
-     JAVASCRIPT - FULL CODE
+     JAVASCRIPT - FULL CODE DENGAN VERSIONING DAN ANTI OVERRIDE
      ============================================================ -->
 <script>
     // ============================================================
@@ -631,23 +631,42 @@
     }
 
     // ============================================================
-    // SAVE KE FIREBASE
+    // SAVE KE FIREBASE DENGAN VERSION CHECK (ANTI OVERRIDE)
     // ============================================================
     async function saveToCloud(data) {
         try {
             updateSyncStatus('syncing', 'Menyimpan...');
-            currentDataVersion++;
+            
+            // 🔥 CEK VERSION TERAKHIR DI FIREBASE
+            const snapshot = await database.ref('dashboardData/_version').once('value');
+            const lastVersion = snapshot.val() || 0;
+            
+            // 🔥 JIKA DATA YANG DISIMPAN VERSION-NYA LEBIH RENDAH, TOLAK!
+            const newVersion = data._version || 0;
+            
+            if (newVersion < lastVersion && lastVersion > 0) {
+                console.warn('⚠️ Data yang akan disimpan lebih lama (v' + newVersion + ' < v' + lastVersion + ')');
+                console.warn('⚠️ Skip save untuk mencegah override!');
+                showToast('⚠️ Data lebih baru sudah ada! (v' + lastVersion + ')', true);
+                updateSyncStatus('error', 'Data lebih baru ada (v' + lastVersion + ')');
+                return false;
+            }
+            
+            const finalVersion = lastVersion + 1;
             const dataWithVersion = {
                 ...data,
-                _version: currentDataVersion,
+                _version: finalVersion,
                 _timestamp: firebase.database.ServerValue.TIMESTAMP,
                 _lastUpdated: new Date().toISOString()
             };
-            console.log('💾 Menyimpan versi:', currentDataVersion);
+            
+            console.log('💾 Menyimpan versi:', finalVersion);
             await database.ref('dashboardData').set(dataWithVersion);
-            console.log('✅ Data versi', currentDataVersion, 'tersimpan!');
-            showToast('✅ Data tersimpan di cloud! (v' + currentDataVersion + ')');
-            updateSyncStatus('synced', 'v' + currentDataVersion + ' tersimpan');
+            console.log('✅ Data versi', finalVersion, 'tersimpan!');
+            showToast('✅ Data tersimpan di cloud! (v' + finalVersion + ')');
+            updateSyncStatus('synced', 'v' + finalVersion + ' tersimpan');
+            
+            currentDataVersion = finalVersion;
             return true;
         } catch (error) {
             console.error('❌ Error Firebase:', error);
@@ -740,9 +759,9 @@
             const snapshot = await database.ref('dashboardData').once('value');
             const data = snapshot.val();
             
-            if (data) {
+            if (data && data._version && data._version > 0) {
                 console.log('📥 DATA DARI FIREBASE (TERAKHIR):', data);
-                console.log('📊 Version:', data._version || 0);
+                console.log('📊 Version:', data._version);
                 console.log('🕐 Last updated:', data._lastUpdated);
                 console.log('📹 Videos:', data.videoData);
                 
@@ -750,10 +769,20 @@
                 currentDataVersion = 0;
                 applyDashboardState(data);
                 
-                updateSyncStatus('synced', 'v' + (data._version || 0) + ' dari Firebase (TERAKHIR)');
+                updateSyncStatus('synced', 'v' + data._version + ' dari Firebase (TERAKHIR)');
                 return true;
+            } else {
+                console.warn('⚠️ Data di Firebase tidak valid (version:', data?._version, ')');
+                console.log('📥 Membuat data default dengan version 1...');
+                
+                // 🔥 BUAT DATA DEFAULT DENGAN VERSION 1
+                setDefaultData();
+                const defaultData = collectDashboardState();
+                await saveToCloud(defaultData);
+                
+                // 🔥 RELOAD
+                return await loadInitialData();
             }
-            return false;
         } catch (error) {
             console.warn('❌ Gagal load dari Firebase:', error);
             updateSyncStatus('error', 'Gagal memuat dari Firebase');
@@ -800,9 +829,9 @@
             const snapshot = await database.ref('dashboardData').once('value');
             const data = snapshot.val();
             
-            if (data) {
+            if (data && data._version && data._version > 0) {
                 console.log('🔄 FORCE REFRESH - Data terbaru dari Firebase:', data);
-                console.log('📊 Version:', data._version || 0);
+                console.log('📊 Version:', data._version);
                 console.log('🕐 Last updated:', data._lastUpdated);
                 
                 // 🔥 RESET VERSION DULU
@@ -811,11 +840,11 @@
                 // 🔥 APPLY DATA TERBARU
                 applyDashboardState(data);
                 
-                showToast('✅ Data direfresh! (v' + (data._version || 0) + ')');
-                updateSyncStatus('synced', 'v' + (data._version || 0) + ' - refreshed');
+                showToast('✅ Data direfresh! (v' + data._version + ')');
+                updateSyncStatus('synced', 'v' + data._version + ' - refreshed');
                 return true;
             }
-            showToast('⚠️ Tidak ada data di Firebase', true);
+            showToast('⚠️ Tidak ada data valid di Firebase', true);
             return false;
         } catch (error) {
             console.error('❌ Refresh error:', error);
@@ -836,18 +865,28 @@
             showToast('🔄 Mereset data...');
             updateSyncStatus('syncing', 'Resetting...');
             currentDataVersion = 0;
+            
+            // 🔥 HAPUS DATA LAMA
+            await database.ref('dashboardData').remove();
+            console.log('✅ Data lama dihapus');
+            
+            // 🔥 BUAT DATA DEFAULT DENGAN VERSION 1
             setDefaultData();
             const data = collectDashboardState();
             await saveToCloud(data);
+            
             renderVideoSlide();
             renderPosterSlide();
             renderAnnouncement();
             renderSchedule();
             renderRunningCards();
             initChart();
+            
             showToast('✅ Data direset! (v' + currentDataVersion + ')');
             updateSyncStatus('synced', 'Reset selesai - v' + currentDataVersion);
-            setTimeout(() => { location.reload(); }, 1500);
+            
+            // 🔥 RELOAD SETELAH 2 DETIK
+            setTimeout(() => { location.reload(); }, 2000);
         } catch (error) {
             console.error('❌ Reset error:', error);
             showToast('❌ Gagal reset!', true);
@@ -1605,59 +1644,90 @@
     }
 
     // ============================================================
-    // SAVE DATA
+    // SAVE DATA DENGAN VERSION CHECK
     // ============================================================
     function saveData() {
         console.log('💾 Menyimpan data ke Firebase...');
-        const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
-        const newVideoData = [];
-        videoInputs.forEach(input => {
-            if (input.value.trim()) {
-                newVideoData.push(input.value.trim());
-            }
-        });
-        const validLinks = newVideoData.filter(link => link && link.trim() !== '');
-        videoData = [...validLinks, ...DEFAULT_VIDEOS];
+        
+        // 🔥 CEK VERSION TERAKHIR DULU
+        database.ref('dashboardData/_version').once('value')
+            .then(snapshot => {
+                const lastVersion = snapshot.val() || 0;
+                console.log('📊 Version terakhir di Firebase:', lastVersion);
+                
+                // Kumpulkan data
+                const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
+                const newVideoData = [];
+                videoInputs.forEach(input => {
+                    if (input.value.trim()) {
+                        newVideoData.push(input.value.trim());
+                    }
+                });
+                const validLinks = newVideoData.filter(link => link && link.trim() !== '');
+                videoData = [...validLinks, ...DEFAULT_VIDEOS];
 
-        ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(calculateDiff);
+                ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(calculateDiff);
 
-        if (chartInstance) {
-            chartInstance.data.datasets[0].data = [
-                parseFloat(document.getElementById('edit-chart-mixing').value) || 0,
-                parseFloat(document.getElementById('edit-chart-packing').value) || 0,
-                parseFloat(document.getElementById('edit-chart-office').value) || 0
-            ];
-            chartInstance.update();
-        }
+                if (chartInstance) {
+                    chartInstance.data.datasets[0].data = [
+                        parseFloat(document.getElementById('edit-chart-mixing').value) || 0,
+                        parseFloat(document.getElementById('edit-chart-packing').value) || 0,
+                        parseFloat(document.getElementById('edit-chart-office').value) || 0
+                    ];
+                    chartInstance.update();
+                }
 
-        announcementData.title = document.getElementById('edit-announce-title').value || 'Pengumuman';
-        announcementData.subtitle = document.getElementById('edit-announce-subtitle').value || '';
-        announcementData.body = document.getElementById('edit-announce-body').value || '';
-        renderAnnouncement();
+                announcementData.title = document.getElementById('edit-announce-title').value || 'Pengumuman';
+                announcementData.subtitle = document.getElementById('edit-announce-subtitle').value || '';
+                announcementData.body = document.getElementById('edit-announce-body').value || '';
+                renderAnnouncement();
 
-        scheduleData = [1, 2, 3].map(n => ({
-            date: document.getElementById(`edit-schedule-date${n}`).value || '',
-            activity: document.getElementById(`edit-schedule-activity${n}`).value || '',
-            status: document.getElementById(`edit-schedule-status${n}`).value
-        }));
-        renderSchedule();
+                scheduleData = [1, 2, 3].map(n => ({
+                    date: document.getElementById(`edit-schedule-date${n}`).value || '',
+                    activity: document.getElementById(`edit-schedule-activity${n}`).value || '',
+                    status: document.getElementById(`edit-schedule-status${n}`).value
+                }));
+                renderSchedule();
 
-        renderPosterSlide();
-        renderVideoSlide();
-        renderRunningCards();
+                renderPosterSlide();
+                renderVideoSlide();
+                renderRunningCards();
 
-        const dashboardData = collectDashboardState();
-        saveToCloud(dashboardData);
-
-        document.querySelectorAll('.poster-wrapper,.announcement-wrapper,#video-card,#schedule-card').forEach(el => {
-            el.classList.remove('data-updated');
-            requestAnimationFrame(() => {
-                el.classList.add('data-updated');
-                setTimeout(() => el.classList.remove('data-updated'), 700);
+                const dashboardData = collectDashboardState();
+                
+                // 🔥 SAVE DENGAN VERSION BARU
+                const dataWithVersion = {
+                    ...dashboardData,
+                    _version: lastVersion + 1,
+                    _timestamp: firebase.database.ServerValue.TIMESTAMP,
+                    _lastUpdated: new Date().toISOString()
+                };
+                
+                return database.ref('dashboardData').set(dataWithVersion);
+            })
+            .then(() => {
+                console.log('✅ Data tersimpan!');
+                showToast('✅ Data tersimpan di cloud!');
+                updateSyncStatus('synced', 'Data tersimpan');
+                
+                // 🔥 UPDATE CURRENT VERSION
+                currentDataVersion++;
+                
+                document.querySelectorAll('.poster-wrapper,.announcement-wrapper,#video-card,#schedule-card').forEach(el => {
+                    el.classList.remove('data-updated');
+                    requestAnimationFrame(() => {
+                        el.classList.add('data-updated');
+                        setTimeout(() => el.classList.remove('data-updated'), 700);
+                    });
+                });
+                
+                setTimeout(toggleEditPanel, 400);
+            })
+            .catch(err => {
+                console.error('❌ Error:', err);
+                showToast('❌ Gagal simpan!', true);
+                updateSyncStatus('error', 'Gagal simpan');
             });
-        });
-
-        setTimeout(toggleEditPanel, 400);
     }
 
     // ============================================================
@@ -1740,6 +1810,7 @@
         console.log('🚀 Dashboard Loading...');
         console.log('🔄 Akan memuat DATA TERAKHIR dari Firebase...');
         console.log('🎬 Video Health Check AKTIF - video akan tetap berjalan');
+        console.log('🔒 Anti-override aktif - data terbaru akan selalu dipertahankan');
         
         // 🔥 TAMPILKAN DATA DEFAULT DULU (UNTUK LOADING)
         setDefaultData();
@@ -1861,6 +1932,7 @@
     window.forceResetFirebase = forceResetFirebase;
     window.checkFirebaseData = checkFirebaseData;
     window.forceRefresh = forceRefresh;
+    window.collectDashboardState = collectDashboardState;
 
     console.log('🔥 Dashboard siap!');
     console.log('📌 Gunakan checkFirebaseData() untuk cek data di Firebase');
@@ -1868,6 +1940,7 @@
     console.log('📌 Video Health Check: Setiap 2 detik cek status video');
     console.log('📌 Tab aktif/kembali: Video akan restart otomatis');
     console.log('📌 Data TERAKHIR dari Firebase akan selalu dimuat saat buka tab baru');
+    console.log('🔒 Anti-override aktif - data dengan version lebih tinggi akan dipertahankan');
 </script>
 
 </body>
