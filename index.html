@@ -3,15 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dashboard Produksi HD</title>
+<title>Dashboard Produksi HD - Supabase</title>
 
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 
-<!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<!-- 🔥 SUPABASE SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -284,9 +283,9 @@
 
         <div class="flex items-center gap-3">
             <div class="status-pill">
-                <span class="dot-green"></span>
+                <span class="dot-green" id="connectionDot"></span>
                 <span>RUNNING</span>
-                <span id="firebaseStatus" style="width:7px;height:7px;border-radius:50%;display:inline-block;margin-left:8px;background:#22c55e;box-shadow:0 0 8px #22c55e;"></span>
+                <span id="connectionStatus" style="font-size:0.55rem;color:#94a3b8;margin-left:4px;">● Connecting...</span>
             </div>
             <div class="datetime-block">
                 <div class="date-chip" id="headerDate">
@@ -295,9 +294,10 @@
                 <div id="clock">00:00:00</div>
                 <span id="syncStatus" class="synced">🔄 Synced</span>
                 <button class="edit-btn-nav" onclick="toggleEditPanel()">✏️ Edit</button>
-                <button class="edit-btn-nav" style="border-color:#f59e0b;color:#f59e0b;" onclick="checkFirebaseData()">🔍 Check</button>
-                <button id="resetBtn" class="edit-btn-nav" style="border-color:#ef4444;color:#ef4444;" onclick="forceResetFirebase()">🔄 Reset</button>
-                <button class="edit-btn-nav" style="border-color:#8b5cf6;color:#8b5cf6;" onclick="fixAutoSave()">🔧 Fix</button>
+                <button class="edit-btn-nav" style="border-color:#34d399;color:#34d399;" onclick="forceSync()">🔄 Sync</button>
+                <button class="edit-btn-nav" style="border-color:#f59e0b;color:#f59e0b;" onclick="checkSupabaseData()">🔍 Check</button>
+                <button id="resetBtn" class="edit-btn-nav" style="border-color:#ef4444;color:#ef4444;" onclick="forceResetSupabase()">🔄 Reset</button>
+                <button class="edit-btn-nav" style="border-color:#8b5cf6;color:#8b5cf6;" onclick="fixAutoSaveSupabase()">🔧 Fix</button>
             </div>
         </div>
     </header>
@@ -540,1240 +540,1492 @@
 </div>
 
 <!-- ============================================================
-     JAVASCRIPT - FULL CODE
+     JAVASCRIPT - SUPABASE WITH FIREBASE-LIKE STABILITY
      ============================================================ -->
 <script>
-    // ============================================================
-    // KONFIGURASI FIREBASE
-    // ============================================================
-    const firebaseConfig = {
-        apiKey: "AIzaSyDjSIR6lnYZ_CXJU4b7G7V5WrwOuX6gkho",
-        authDomain: "dashboard-produksi-330dd.firebaseapp.com",
-        projectId: "dashboard-produksi-330dd",
-        databaseURL: "https://dashboard-produksi-330dd-default-rtdb.asia-southeast1.firebasedatabase.app/",
-        messagingSenderId: "136686452986",
-        appId: "1:136686452986:web:6b39ce3b66b8520159c943",
-        measurementId: "G-9PDYPG4B0L"
-    };
+// ============================================================
+// 🔥 KONFIGURASI SUPABASE
+// ============================================================
+const supabaseUrl = 'https://zdhlrnwtckncactjzsvi.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpkaGxybnd0Y2tuY2FjdGp6c3ZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5MDk4NjIsImV4cCI6MjA5ODQ4NTg2Mn0.m_DEj7lziXA-yEsoDg1dUudKsKT30oQe40i74IfqZ5k';
 
-    firebase.initializeApp(firebaseConfig);
-    const database = firebase.database();
-
-    // ============================================================
-    // STATE
-    // ============================================================
-    let posterImages = [];
-    let videoData = [];
-    let scheduleData = [];
-    let announcementData = {};
-    let currentPosterSlide = 0;
-    let currentVideoSlide = 0;
-    let posterInterval = null;
-    let videoTimeout = null;
-    let chartInstance = null;
-    let videoDurations = [];
-    let currentDataVersion = 0;
-    let lastSyncedData = null;
-    let videoCheckInterval = null;
-
-    const STATUS_LABELS = { ongoing: '● Berlangsung', upcoming: '○ Akan Datang', done: '✓ Selesai' };
-    const STATUS_CLASSES = { ongoing: 'ongoing', upcoming: 'upcoming', done: 'done' };
-
-    const DEFAULT_VIDEOS = [
-        'asset/video1.mp4',
-        'asset/video2.mp4',
-        'asset/video3.mp4'
-    ];
-
-    // ============================================================
-    // TOAST
-    // ============================================================
-    function showToast(msg, isError = false) {
-        const t = document.getElementById('toast');
-        t.textContent = msg;
-        t.className = 'toast' + (isError ? ' error' : '');
-        t.style.display = 'block';
-        setTimeout(() => t.style.display = 'none', 3000);
+// ✅ INISIALISASI
+const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey, {
+    auth: {
+        persistSession: false,
+        autoRefreshToken: false,
     }
+});
 
-    // ============================================================
-    // UPDATE SYNC STATUS
-    // ============================================================
-    function updateSyncStatus(status, message = '') {
-        const el = document.getElementById('syncStatus');
-        if (!el) return;
-        el.className = status;
-        const texts = { synced: '🔄 Synced', syncing: '⏳ Syncing...', error: '⚠️ Error' };
-        el.textContent = texts[status] || '🔄 Synced';
-        if (message) el.title = message;
+console.log('✅ Supabase initialized');
+console.log('✅ URL:', supabaseUrl);
+
+// ============================================================
+// STATE
+// ============================================================
+let posterImages = [];
+let videoData = [];
+let scheduleData = [];
+let announcementData = {};
+let currentPosterSlide = 0;
+let currentVideoSlide = 0;
+let posterInterval = null;
+let videoTimeout = null;
+let chartInstance = null;
+let videoDurations = [];
+let currentDataVersion = 0;
+let lastSyncedData = null;
+let videoCheckInterval = null;
+let supabaseChannel = null;
+let isSaving = false;
+let pollingInterval = null;
+let heartbeatInterval = null;
+
+const STATUS_LABELS = { ongoing: '● Berlangsung', upcoming: '○ Akan Datang', done: '✓ Selesai' };
+const STATUS_CLASSES = { ongoing: 'ongoing', upcoming: 'upcoming', done: 'done' };
+
+const DEFAULT_VIDEOS = [
+    'asset/video1.mp4',
+    'asset/video2.mp4',
+    'asset/video3.mp4'
+];
+
+// ============================================================
+// TOAST
+// ============================================================
+function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast' + (isError ? ' error' : '');
+    t.style.display = 'block';
+    setTimeout(() => t.style.display = 'none', 3000);
+}
+
+// ============================================================
+// SYNC STATUS
+// ============================================================
+function updateSyncStatus(status, message = '') {
+    const el = document.getElementById('syncStatus');
+    if (!el) return;
+    el.className = status;
+    const texts = { synced: '🔄 Synced', syncing: '⏳ Syncing...', error: '⚠️ Error' };
+    el.textContent = texts[status] || '🔄 Synced';
+    if (message) el.title = message;
+}
+
+// ============================================================
+// CONNECTION STATUS - Firebase-like indicator
+// ============================================================
+function updateConnectionStatus(status, message = '') {
+    const dot = document.getElementById('connectionDot');
+    const text = document.getElementById('connectionStatus');
+    
+    if (!dot || !text) return;
+    
+    switch(status) {
+        case 'connected':
+            dot.style.background = '#22c55e';
+            dot.style.boxShadow = '0 0 8px #22c55e';
+            text.textContent = '● Live';
+            text.style.color = '#34d399';
+            break;
+        case 'connecting':
+            dot.style.background = '#f59e0b';
+            dot.style.boxShadow = '0 0 8px #f59e0b';
+            text.textContent = '● Connecting...';
+            text.style.color = '#f59e0b';
+            break;
+        case 'disconnected':
+            dot.style.background = '#ef4444';
+            dot.style.boxShadow = '0 0 8px #ef4444';
+            text.textContent = '● Offline';
+            text.style.color = '#f87171';
+            break;
+        default:
+            text.textContent = message || '● Unknown';
     }
+}
 
-    // ============================================================
-    // FIREBASE CONNECTION STATUS
-    // ============================================================
-    function setupConnectionStatus() {
-        const statusEl = document.getElementById('firebaseStatus');
-        if (!statusEl) return;
-        const connectedRef = database.ref('.info/connected');
-        connectedRef.on('value', (snap) => {
-            const isConnected = snap.val();
-            if (isConnected) {
-                statusEl.style.background = '#22c55e';
-                statusEl.style.boxShadow = '0 0 8px #22c55e';
-                console.log('🟢 Terhubung ke Firebase');
-                updateSyncStatus('synced', 'Terhubung ke Firebase');
-            } else {
-                statusEl.style.background = '#ef4444';
-                statusEl.style.boxShadow = '0 0 8px #ef4444';
-                console.log('🔴 Terputus dari Firebase');
-                updateSyncStatus('error', 'Terputus dari Firebase');
-            }
-        });
-    }
-
-    // ============================================================
-    // SAVE KE FIREBASE - DENGAN VERSION PROTECTION
-    // ============================================================
-    async function saveToCloud(data) {
-        try {
-            updateSyncStatus('syncing', 'Menyimpan...');
-
-            // 🔥 CEK VERSION TERAKHIR DI FIREBASE
-            const snapshot = await database.ref('dashboardData/_version').once('value');
-            const lastVersion = snapshot.val() || 0;
-
-            // 🔥 CEK APAKAH DATA YANG DISIMPAN ADALAH DEFAULT (TANPA VERSION)
-            const isDefaultData = !data._version || data._version === 0;
-
-            if (isDefaultData && lastVersion > 0) {
-                console.warn('⚠️ Mencegah penyimpanan data default! (v' + lastVersion + ' sudah ada)');
-                showToast('⚠️ Data lebih baru sudah ada!', true);
-                updateSyncStatus('error', 'Data lebih baru ada');
-                return false;
-            }
-
-            // 🔥 JIKA VERSION LEBIH RENDAH, TOLAK!
-            if (data._version && data._version < lastVersion && lastVersion > 0) {
-                console.warn('⚠️ Data yang akan disimpan lebih lama (v' + data._version + ' < v' + lastVersion + ')');
-                showToast('⚠️ Data lebih baru sudah ada! (v' + lastVersion + ')', true);
-                return false;
-            }
-
-            const finalVersion = lastVersion + 1;
-            const dataWithVersion = {
-                ...data,
-                _version: finalVersion,
-                _timestamp: firebase.database.ServerValue.TIMESTAMP,
-                _lastUpdated: new Date().toISOString()
-            };
-
-            console.log('💾 Menyimpan versi:', finalVersion);
-            await database.ref('dashboardData').set(dataWithVersion);
-            console.log('✅ Data versi', finalVersion, 'tersimpan!');
-            showToast('✅ Data tersimpan di cloud! (v' + finalVersion + ')');
-            updateSyncStatus('synced', 'v' + finalVersion + ' tersimpan');
-
-            currentDataVersion = finalVersion;
+// ============================================================
+// SUPABASE - LOAD DATA
+// ============================================================
+async function loadFromSupabase(retryCount = 0) {
+    const MAX_RETRY = 3;
+    try {
+        updateSyncStatus('syncing', 'Memuat data dari Supabase...');
+        
+        console.log('📡 Fetching from:', supabaseUrl + '/rest/v1/dashboard_data');
+        
+        const { data, error } = await supabaseClient
+            .from('dashboard_data')
+            .select('*')
+            .order('_version', { ascending: false })
+            .limit(1);
+            
+        if (error) {
+            console.error('❌ Supabase error:', error);
+            throw error;
+        }
+        
+        if (data && data.length > 0) {
+            const record = data[0];
+            const dashboardData = record.data;
+            const version = record._version;
+            
+            console.log('✅ Data dari Supabase:', dashboardData);
+            console.log('📊 Version:', version);
+            console.log('🕐 Last updated:', record._last_updated);
+            
+            currentDataVersion = version;
+            applyDashboardState({ 
+                ...dashboardData, 
+                _version: version, 
+                _lastUpdated: record._last_updated 
+            });
+            
+            updateSyncStatus('synced', 'v' + version + ' dari Supabase');
+            updateConnectionStatus('connected');
             return true;
-        } catch (error) {
-            console.error('❌ Error Firebase:', error);
-            showToast('❌ Gagal simpan!', true);
-            updateSyncStatus('error', 'Gagal simpan');
+        }
+        
+        console.log('⚠️ Data kosong di Supabase, membuat default...');
+        return await createDefaultData();
+        
+    } catch (error) {
+        console.error('❌ Error load:', error);
+        updateSyncStatus('error', 'Gagal memuat');
+        updateConnectionStatus('disconnected');
+        
+        if (retryCount < MAX_RETRY) {
+            console.warn(`⚠️ Mencoba lagi (${retryCount + 1}/${MAX_RETRY})...`);
+            await new Promise(r => setTimeout(r, 2000));
+            return await loadFromSupabase(retryCount + 1);
+        }
+        return false;
+    }
+}
+
+// ============================================================
+// SUPABASE - SAVE DATA (FIXED - UPDATE INSTEAD OF INSERT)
+// ============================================================
+async function saveToSupabase(dashboardData, newVersion = null) {
+    if (isSaving) {
+        console.warn('⚠️ Sedang menyimpan, tunggu...');
+        return false;
+    }
+    
+    try {
+        isSaving = true;
+        updateSyncStatus('syncing', 'Menyimpan ke Supabase...');
+        
+        const { data: latest, error: getError } = await supabaseClient
+            .from('dashboard_data')
+            .select('_version')
+            .order('_version', { ascending: false })
+            .limit(1);
+            
+        if (getError) throw getError;
+        
+        const lastVersion = (latest && latest.length > 0) ? latest[0]._version : 0;
+        const finalVersion = newVersion !== null ? newVersion : lastVersion + 1;
+        
+        // ✅ JIKA DATA DEFAULT, UPDATE INSTEAD OF INSERT
+        const isDefaultData = !dashboardData._version || dashboardData._version <= 1;
+        
+        if (isDefaultData && lastVersion > 0) {
+            console.log('🔄 Data default, akan UPDATE data yang sudah ada...');
+            
+            const { error: updateError } = await supabaseClient
+                .from('dashboard_data')
+                .update({
+                    _version: lastVersion + 1,
+                    _last_updated: new Date().toISOString(),
+                    data: dashboardData
+                })
+                .eq('_version', lastVersion);
+                
+            if (updateError) throw updateError;
+            
+            console.log('✅ Data diupdate! Version:', lastVersion + 1);
+            currentDataVersion = lastVersion + 1;
+            showToast('✅ Data diupdate! (v' + (lastVersion + 1) + ')');
+            updateSyncStatus('synced', 'v' + (lastVersion + 1) + ' terupdate');
+            return true;
+        }
+        
+        // CEK VERSION
+        if (dashboardData._version && dashboardData._version < lastVersion && lastVersion > 0) {
+            console.warn('⚠️ Data lebih lama (v' + dashboardData._version + ' < v' + lastVersion + ')');
+            showToast('⚠️ Data lebih baru sudah ada! (v' + lastVersion + ')', true);
             return false;
         }
+        
+        const dataToSave = {
+            _version: finalVersion,
+            _last_updated: new Date().toISOString(),
+            data: dashboardData
+        };
+        
+        const { error } = await supabaseClient
+            .from('dashboard_data')
+            .insert([dataToSave]);
+            
+        if (error) throw error;
+        
+        console.log('✅ Data tersimpan! Version:', finalVersion);
+        currentDataVersion = finalVersion;
+        showToast('✅ Data tersimpan di cloud! (v' + finalVersion + ')');
+        updateSyncStatus('synced', 'v' + finalVersion + ' tersimpan');
+        
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Error save:', error);
+        showToast('❌ Gagal simpan!', true);
+        updateSyncStatus('error', 'Gagal simpan');
+        return false;
+    } finally {
+        isSaving = false;
     }
+}
 
-    // ============================================================
-    // APPLY DATA
-    // ============================================================
-    function applyDashboardState(data) {
-        if (!data) return;
+// ============================================================
+// SUPABASE - CREATE DEFAULT DATA
+// ============================================================
+async function createDefaultData() {
+    console.log('📥 Membuat data default...');
+    setDefaultData();
+    const defaultData = collectDashboardState();
+    const saved = await saveToSupabase(defaultData, 1);
+    if (saved) {
+        applyDashboardState({ 
+            ...defaultData, 
+            _version: 1, 
+            _lastUpdated: new Date().toISOString() 
+        });
+    }
+    return saved;
+}
 
-        currentDataVersion = data._version || 0;
-        console.log('🔄 APPLY DATA - Version:', currentDataVersion);
-        console.log('🕐 Last updated:', data._lastUpdated);
+// ============================================================
+// 🔥 REALTIME LISTENER - FIREBASE-LIKE STABILITY
+// ============================================================
+function setupRealtimeListener() {
+    // Hapus channel lama
+    if (window.supabaseChannel) {
+        try {
+            supabaseClient.removeChannel(window.supabaseChannel);
+        } catch(e) {}
+        console.log('🔴 Channel lama dihapus');
+    }
+    
+    // 🔥 KONFIGURASI YANG LEBIH STABIL
+    window.supabaseChannel = supabaseClient
+        .channel('dashboard-changes', {
+            config: {
+                broadcast: { 
+                    ack: true,
+                    self: false 
+                },
+                presence: { 
+                    key: 'dashboard' 
+                }
+            }
+        })
+        .on(
+            'postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'dashboard_data'
+            },
+            (payload) => {
+                console.log('🔄 Real-time event:', payload.eventType);
+                
+                try {
+                    const newRecord = payload.new;
+                    if (!newRecord) return;
+                    
+                    const newVersion = newRecord._version;
+                    const newData = newRecord.data;
+                    
+                    console.log('🔄 Update! Version:', newVersion);
+                    
+                    if (newVersion > currentDataVersion) {
+                        console.log('✅ Ada update baru!');
+                        currentDataVersion = newVersion;
+                        applyDashboardState({ 
+                            ...newData, 
+                            _version: newVersion, 
+                            _lastUpdated: newRecord._last_updated 
+                        });
+                        
+                        // Re-render semua komponen
+                        renderVideoSlide();
+                        renderPosterSlide();
+                        renderAnnouncement();
+                        renderSchedule();
+                        renderRunningCards();
+                        initChart();
+                        
+                        showToast('🔄 Data diupdate! (v' + newVersion + ')');
+                        updateSyncStatus('synced', 'v' + newVersion);
+                        updateConnectionStatus('connected');
+                    }
+                } catch (error) {
+                    console.error('❌ Error dalam listener:', error);
+                }
+            }
+        )
+        .subscribe((status) => {
+            console.log('📡 Realtime status:', status);
+            
+            if (status === 'SUBSCRIBED') {
+                console.log('✅ Realtime connected!');
+                updateConnectionStatus('connected');
+                updateSyncStatus('synced', 'Live');
+            } else if (status === 'CHANNEL_ERROR') {
+                console.log('❌ Realtime error, reconnecting...');
+                updateConnectionStatus('connecting');
+                updateSyncStatus('error', 'Reconnecting...');
+                
+                // Auto reconnect setelah 3 detik
+                setTimeout(() => {
+                    console.log('🔄 Reconnecting realtime...');
+                    setupRealtimeListener();
+                }, 3000);
+            } else if (status === 'CLOSED') {
+                console.log('🔴 Realtime closed, reconnecting...');
+                updateConnectionStatus('disconnected');
+                setTimeout(() => {
+                    setupRealtimeListener();
+                }, 2000);
+            }
+        });
+    
+    console.log('🟢 Realtime listener terpasang!');
+}
 
-        if (data.posterImages !== undefined) {
-            posterImages = data.posterImages || [];
-            console.log('📸 Poster images:', posterImages.length);
+// ============================================================
+// 🔥 HEARTBEAT - Keep WebSocket Alive (seperti Firebase)
+// ============================================================
+function startRealtimeHeartbeat() {
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+    }
+    
+    // Kirim ping setiap 15 detik untuk keep connection alive
+    heartbeatInterval = setInterval(() => {
+        if (window.supabaseChannel) {
+            try {
+                const status = window.supabaseChannel.state;
+                console.log('💓 Heartbeat - Channel state:', status);
+                
+                if (status === 'subscribed') {
+                    // Kirim ping
+                    window.supabaseChannel.send({
+                        type: 'broadcast',
+                        event: 'ping',
+                        payload: { timestamp: Date.now() }
+                    });
+                    updateConnectionStatus('connected');
+                } else if (status === 'errored' || status === 'closed') {
+                    console.log('🔄 Channel bermasalah, reconnect...');
+                    updateConnectionStatus('connecting');
+                    setupRealtimeListener();
+                }
+            } catch (e) {
+                console.warn('⚠️ Heartbeat error:', e);
+            }
         }
+    }, 15000);
+}
 
-        if (data.scheduleData !== undefined) {
-            scheduleData = data.scheduleData || [];
-            console.log('📋 Schedule data:', scheduleData.length);
+// ============================================================
+// 🔥 FAST POLLING - Seperti Firebase Realtime (2 detik)
+// ============================================================
+function startFastPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+    }
+    
+    console.log('🔄 Starting fast polling (every 2s)...');
+    
+    pollingInterval = setInterval(async () => {
+        try {
+            // Cek versi terbaru
+            const { data, error } = await supabaseClient
+                .from('dashboard_data')
+                .select('_version')
+                .order('_version', { ascending: false })
+                .limit(1);
+                
+            if (error) throw error;
+            
+            if (data && data.length > 0) {
+                const serverVersion = data[0]._version;
+                
+                // 🔥 Jika ada versi baru, ambil data
+                if (serverVersion > currentDataVersion) {
+                    console.log(`🔄 Polling: New version ${serverVersion} (current: ${currentDataVersion})`);
+                    
+                    const { data: fullData, error: fullError } = await supabaseClient
+                        .from('dashboard_data')
+                        .select('*')
+                        .eq('_version', serverVersion)
+                        .limit(1);
+                        
+                    if (fullError) throw fullError;
+                    
+                    if (fullData && fullData.length > 0) {
+                        const record = fullData[0];
+                        currentDataVersion = serverVersion;
+                        applyDashboardState({ 
+                            ...record.data, 
+                            _version: serverVersion, 
+                            _lastUpdated: record._last_updated 
+                        });
+                        
+                        // Re-render
+                        renderVideoSlide();
+                        renderPosterSlide();
+                        renderAnnouncement();
+                        renderSchedule();
+                        renderRunningCards();
+                        initChart();
+                        
+                        showToast('🔄 Data updated! (v' + serverVersion + ')');
+                        updateSyncStatus('synced', 'v' + serverVersion);
+                        updateConnectionStatus('connected');
+                    }
+                }
+            }
+        } catch (error) {
+            // Silent fail untuk polling
         }
+    }, 2000);
+}
 
-        if (data.announcementData !== undefined) {
-            announcementData = data.announcementData || {};
-            console.log('📢 Announcement:', announcementData.title);
+// ============================================================
+// 🔥 FORCE SYNC - Manual sync (seperti Firebase goOnline)
+// ============================================================
+async function forceSync() {
+    showToast('🔄 Syncing...');
+    updateSyncStatus('syncing', 'Manual sync...');
+    
+    try {
+        const { data, error } = await supabaseClient
+            .from('dashboard_data')
+            .select('*')
+            .order('_version', { ascending: false })
+            .limit(1);
+            
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+            const record = data[0];
+            const version = record._version;
+            
+            console.log('🔄 FORCE SYNC - Version:', version);
+            
+            if (version > currentDataVersion) {
+                console.log('✅ New version detected!');
+                currentDataVersion = version;
+                applyDashboardState({ 
+                    ...record.data, 
+                    _version: version, 
+                    _lastUpdated: record._last_updated 
+                });
+                
+                renderVideoSlide();
+                renderPosterSlide();
+                renderAnnouncement();
+                renderSchedule();
+                renderRunningCards();
+                initChart();
+                
+                showToast('✅ Synced! (v' + version + ')');
+                updateSyncStatus('synced', 'v' + version);
+                updateConnectionStatus('connected');
+            } else {
+                showToast('✅ Already up-to-date (v' + version + ')');
+                updateSyncStatus('synced', 'v' + version);
+            }
+        } else {
+            showToast('⚠️ No data found', true);
         }
+    } catch (error) {
+        console.error('❌ Sync error:', error);
+        showToast('❌ Sync failed!', true);
+        updateSyncStatus('error', 'Sync failed');
+        updateConnectionStatus('disconnected');
+    }
+}
 
-        if (data.videoData !== undefined) {
-            const savedLinks = data.videoData || [];
-            const validLinks = savedLinks.filter(link => link && link.trim() !== '');
-            videoData = [...validLinks, ...DEFAULT_VIDEOS];
-            console.log('📦 VIDEO dari Firebase:', validLinks);
-            console.log('📦 Total video:', videoData.length);
+// ============================================================
+// SUPABASE - CHECK DATA
+// ============================================================
+async function checkSupabaseData() {
+    try {
+        console.log('🔍 Mengecek data di Supabase...');
+        const { data, error } = await supabaseClient
+            .from('dashboard_data')
+            .select('*')
+            .order('_version', { ascending: false })
+            .limit(10);
+            
+        if (error) throw error;
+        
+        console.log('📊 DATA DI SUPABASE:');
+        console.log('📦 Total records:', data.length);
+        
+        if (data.length > 0) {
+            const latest = data[0];
+            console.log('📊 Version terbaru:', latest._version);
+            console.log('🕐 Last updated:', latest._last_updated);
+            console.log('📹 Videos:', latest.data?.videoData || []);
+            console.log('📸 Posters:', latest.data?.posterImages?.length || 0);
+            
+            const msg = `✅ Data di Supabase:\n\n` +
+                       `📊 Total records: ${data.length}\n` +
+                       `📊 Version terbaru: ${latest._version}\n` +
+                       `🕐 Last updated: ${latest._last_updated}\n` +
+                       `📹 Jumlah video: ${latest.data?.videoData?.length || 0}\n` +
+                       `📸 Jumlah poster: ${latest.data?.posterImages?.length || 0}\n\n` +
+                       `📹 Video list: ${JSON.stringify(latest.data?.videoData || [])}`;
+            alert(msg);
+        } else {
+            alert('⚠️ Tidak ada data di Supabase');
         }
+        return data;
+    } catch (error) {
+        console.error('❌ Error checking Supabase:', error);
+        alert('❌ Gagal cek data di Supabase!\n\nError: ' + error.message);
+        return null;
+    }
+}
 
-        if (data.runningData) {
-            ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(id => {
-                if (!data.runningData[id]) return;
-                const elName = document.getElementById(`edit-name-${id}`);
-                const elValue = document.getElementById(`edit-value-${id}`);
-                const elTarget = document.getElementById(`edit-target-${id}`);
-                if (elName) elName.value = data.runningData[id].name || id.toUpperCase();
-                if (elValue) elValue.value = data.runningData[id].value || 0;
-                if (elTarget) elTarget.value = data.runningData[id].target || 0;
-            });
-        }
-
-        if (data.chartData) {
-            const elMixing = document.getElementById('edit-chart-mixing');
-            const elPacking = document.getElementById('edit-chart-packing');
-            const elOffice = document.getElementById('edit-chart-office');
-            if (elMixing) elMixing.value = data.chartData.mixing || 92.5;
-            if (elPacking) elPacking.value = data.chartData.packing || 97.1;
-            if (elOffice) elOffice.value = data.chartData.office || 94.8;
-        }
-
+// ============================================================
+// SUPABASE - FORCE RESET
+// ============================================================
+async function forceResetSupabase() {
+    if (!confirm('⚠️ Yakin ingin mereset data di Supabase?\n\n- Semua data akan dihapus\n- Dashboard akan reload dengan data default\n\nIni hanya perlu dilakukan 1 KALI jika ada masalah data.')) {
+        return;
+    }
+    
+    try {
+        showToast('🔄 Mereset data Supabase...');
+        updateSyncStatus('syncing', 'Resetting...');
+        
+        const { error } = await supabaseClient
+            .from('dashboard_data')
+            .delete()
+            .neq('id', 0);
+            
+        if (error) throw error;
+        
+        console.log('✅ Data lama dihapus');
+        currentDataVersion = 0;
+        
+        setDefaultData();
+        const data = collectDashboardState();
+        await saveToSupabase(data, 1);
+        
         renderVideoSlide();
         renderPosterSlide();
         renderAnnouncement();
         renderSchedule();
         renderRunningCards();
         initChart();
-
-        lastSyncedData = data;
+        
+        showToast('✅ Data direset! (v1)');
+        updateSyncStatus('synced', 'Reset selesai - v1');
+        
+        setTimeout(() => { location.reload(); }, 2000);
+    } catch (error) {
+        console.error('❌ Reset error:', error);
+        showToast('❌ Gagal reset!', true);
+        updateSyncStatus('error', 'Reset gagal');
     }
+}
 
-    // ============================================================
-    // LOAD DATA PERTAMA KALI
-    // ============================================================
-    async function loadInitialData(retryCount = 0) {
-        const MAX_RETRY = 3;
-        try {
-            updateSyncStatus('syncing', 'Memuat data terakhir dari Firebase...');
-
-            const snapshot = await database.ref('dashboardData').once('value');
-            const data = snapshot.val();
-
-            if (data && data._version && data._version > 0) {
-                console.log('📥 DATA DARI FIREBASE (TERAKHIR):', data);
-                console.log('📊 Version:', data._version);
-                console.log('🕐 Last updated:', data._lastUpdated);
-                console.log('📹 Videos:', data.videoData || []);
-
-                // 🔥 JIKA VIDEO KOSONG, TAMBAHKAN DEFAULT
-                if (!data.videoData || data.videoData.length === 0) {
-                    console.warn('⚠️ Video kosong, tambahkan default...');
-                    data.videoData = [...DEFAULT_VIDEOS];
-                    await database.ref('dashboardData').update({
-                        videoData: data.videoData,
-                        _version: (data._version || 0) + 1,
-                        _lastUpdated: new Date().toISOString()
-                    });
-                    console.log('✅ Video default ditambahkan!');
-                }
-
-                currentDataVersion = data._version;
-                applyDashboardState(data);
-
-                updateSyncStatus('synced', 'v' + data._version + ' dari Firebase (TERAKHIR)');
-                return true;
-            }
-
-            if (retryCount < MAX_RETRY) {
-                console.warn(`⚠️ Data belum terbaca dengan benar (percobaan ${retryCount + 1}/${MAX_RETRY}), mencoba lagi...`);
-                updateSyncStatus('syncing', `Mencoba lagi (${retryCount + 1}/${MAX_RETRY})...`);
-                await new Promise(r => setTimeout(r, 1000));
-                return await loadInitialData(retryCount + 1);
-            }
-
-            console.warn('⚠️ Data di Firebase tidak valid setelah retry (version:', data?._version, ')');
-            console.log('📥 Membuat data default dengan version baru...');
-
-            setDefaultData();
-            const defaultData = collectDashboardState();
-            const saved = await saveToCloud(defaultData);
-            if (saved) {
-                applyDashboardState({ ...defaultData, _version: currentDataVersion, _lastUpdated: new Date().toISOString() });
-            }
-            return saved;
-        } catch (error) {
-            console.warn('❌ Gagal load dari Firebase:', error);
-            updateSyncStatus('error', 'Gagal memuat dari Firebase');
-            return false;
+// ============================================================
+// SUPABASE - FIX AUTO-SAVE
+// ============================================================
+async function fixAutoSaveSupabase() {
+    try {
+        console.log('🔥 FIX AUTO-SAVE - Memulai...');
+        
+        for (let i = 0; i < 9999; i++) {
+            try { clearInterval(i); } catch(e) {}
+            try { clearTimeout(i); } catch(e) {}
         }
-    }
-
-    // ============================================================
-    // CHECK FIREBASE DATA
-    // ============================================================
-    async function checkFirebaseData() {
-        try {
-            console.log('🔍 Mengecek data di Firebase...');
-            const snapshot = await database.ref('dashboardData').once('value');
-            const data = snapshot.val();
-            console.log('📊 DATA DI FIREBASE:');
-            console.log('📦 Data:', data);
-            console.log('📊 Version:', data?._version || 'Tidak ada');
-            console.log('🕐 Last updated:', data?._lastUpdated || 'Tidak ada');
-            console.log('📹 Videos:', data?.videoData || []);
-            console.log('📸 Posters:', data?.posterImages?.length || 0);
-            if (data) {
-                const msg = `✅ Data di Firebase:\n\n📊 Version: ${data._version || 'Tidak ada'}\n🕐 Last updated: ${data._lastUpdated || 'Tidak ada'}\n📹 Jumlah video: ${data.videoData?.length || 0}\n📸 Jumlah poster: ${data.posterImages?.length || 0}\n\n📹 Video list: ${JSON.stringify(data.videoData || [])}`;
-                alert(msg);
-            } else {
-                alert('⚠️ Tidak ada data di Firebase');
-            }
-            return data;
-        } catch (error) {
-            console.error('❌ Error checking Firebase:', error);
-            alert('❌ Gagal cek data di Firebase!\n\nError: ' + error.message);
-            return null;
-        }
-    }
-
-    // ============================================================
-    // FORCE REFRESH
-    // ============================================================
-    async function forceRefresh() {
-        showToast('🔄 Merefresh data terbaru dari Firebase...');
-        updateSyncStatus('syncing', 'Merefresh...');
-
-        try {
-            const snapshot = await database.ref('dashboardData').once('value');
-            const data = snapshot.val();
-
-            if (data && data._version && data._version > 0) {
-                console.log('🔄 FORCE REFRESH - Data terbaru:', data);
-                console.log('📊 Version:', data._version);
-                console.log('🕐 Last updated:', data._lastUpdated);
-
-                currentDataVersion = data._version;
-                applyDashboardState(data);
-
-                showToast('✅ Data direfresh! (v' + data._version + ')');
-                updateSyncStatus('synced', 'v' + data._version + ' - refreshed');
-                return true;
-            }
-            showToast('⚠️ Tidak ada data valid di Firebase', true);
-            return false;
-        } catch (error) {
-            console.error('❌ Refresh error:', error);
-            showToast('❌ Gagal refresh!', true);
-            updateSyncStatus('error', 'Refresh gagal');
-            return false;
-        }
-    }
-
-    // ============================================================
-    // FORCE RESET
-    // ============================================================
-    async function forceResetFirebase() {
-        if (!confirm('⚠️ Yakin ingin mereset data?\n\n- Data di Firebase akan dihapus\n- Dashboard akan reload dengan data default\n\nIni hanya perlu dilakukan 1 KALI jika ada masalah data.')) {
+        console.log('✅ Semua interval dihentikan!');
+        
+        const { data, error } = await supabaseClient
+            .from('dashboard_data')
+            .select('*')
+            .order('_version', { ascending: false })
+            .limit(1);
+            
+        if (error) throw error;
+        
+        if (!data || data.length === 0) {
+            alert('⚠️ Tidak ada data!');
             return;
         }
-        try {
-            showToast('🔄 Mereset data...');
-            updateSyncStatus('syncing', 'Resetting...');
-            currentDataVersion = 0;
+        
+        const latest = data[0];
+        const dashboardData = latest.data;
+        const newVersion = latest._version + 1;
+        
+        dashboardData.videoData = [];
+        
+        console.log('📊 Data Version:', newVersion);
+        console.log('📹 Video:', dashboardData.videoData);
+        
+        await saveToSupabase(dashboardData, newVersion);
+        
+        alert('✅ FIX BERHASIL!\n\n' +
+              '✅ Auto-save dimatikan\n' +
+              '✅ Data version ' + newVersion + ' tersimpan\n' +
+              '✅ Video default dihapus dari database\n\n' +
+              'Sekarang data akan PERMANEN!');
+        
+        location.reload();
+        
+    } catch (error) {
+        console.error('❌ Error:', error);
+        alert('❌ Gagal: ' + error.message);
+    }
+}
 
-            await database.ref('dashboardData').remove();
-            console.log('✅ Data lama dihapus');
+// ============================================================
+// APPLY DATA
+// ============================================================
+function applyDashboardState(data) {
+    if (!data) return;
 
-            setDefaultData();
-            const data = collectDashboardState();
-            await saveToCloud(data);
+    currentDataVersion = data._version || 0;
+    console.log('🔄 APPLY DATA - Version:', currentDataVersion);
+    console.log('🕐 Last updated:', data._lastUpdated);
 
-            renderVideoSlide();
-            renderPosterSlide();
-            renderAnnouncement();
-            renderSchedule();
-            renderRunningCards();
-            initChart();
-
-            showToast('✅ Data direset! (v' + currentDataVersion + ')');
-            updateSyncStatus('synced', 'Reset selesai - v' + currentDataVersion);
-
-            setTimeout(() => { location.reload(); }, 2000);
-        } catch (error) {
-            console.error('❌ Reset error:', error);
-            showToast('❌ Gagal reset!', true);
-            updateSyncStatus('error', 'Reset gagal');
-        }
+    if (data.posterImages !== undefined) {
+        posterImages = data.posterImages || [];
+        console.log('📸 Poster images:', posterImages.length);
     }
 
-    // ============================================================
-    // FIX AUTO-SAVE - HENTIKAN AUTO-SAVE + UPDATE DATA
-    // ============================================================
-    async function fixAutoSave() {
-        try {
-            console.log('🔥 FIX AUTO-SAVE - Memulai...');
-
-            // 1. Hentikan semua interval
-            for (let i = 0; i < 9999; i++) {
-                try { clearInterval(i); } catch(e) {}
-                try { clearTimeout(i); } catch(e) {}
-            }
-            console.log('✅ Semua interval dihentikan!');
-
-            // 2. Ambil data yang sudah ada
-            const snapshot = await database.ref('dashboardData').once('value');
-            const data = snapshot.val();
-
-            if (!data) {
-                alert('⚠️ Tidak ada data!');
-                return;
-            }
-
-            // 3. Update ke version dengan video
-            data.videoData = ['asset/video1.mp4', 'asset/video2.mp4', 'asset/video3.mp4'];
-            data._version = (data._version || 0) + 1;
-            data._lastUpdated = new Date().toISOString();
-
-            console.log('📊 Data Version:', data._version);
-            console.log('📹 Video:', data.videoData);
-
-            // 4. Simpan ke Firebase
-            await database.ref('dashboardData').set(data);
-            console.log('✅ Data version', data._version, 'tersimpan!');
-
-            alert('✅ FIX BERHASIL!\n\n' +
-                  '✅ Auto-save dimatikan\n' +
-                  '✅ Data version ' + data._version + ' tersimpan\n' +
-                  '✅ Video default ditambahkan\n\n' +
-                  'Sekarang data akan PERMANEN!');
-
-            location.reload();
-
-        } catch (error) {
-            console.error('❌ Error:', error);
-            alert('❌ Gagal: ' + error.message);
-        }
+    if (data.scheduleData !== undefined) {
+        scheduleData = data.scheduleData || [];
+        console.log('📋 Schedule data:', scheduleData.length);
     }
 
-    // ============================================================
-    // REAL-TIME LISTENER
-    // ============================================================
-    function setupRealtimeListener() {
-        if (window._firebaseListener) {
-            database.ref('dashboardData').off('value', window._firebaseListener);
-            console.log('🔴 Listener lama dihapus');
-        }
-
-        window._firebaseListener = function(snapshot) {
-            try {
-                const data = snapshot.val();
-                if (!data) {
-                    console.log('⚠️ Tidak ada data di Firebase');
-                    return;
-                }
-
-                const newVersion = data._version || 0;
-                console.log('🔄 Real-time update - Version:', newVersion);
-                console.log('🕐 Last updated:', data._lastUpdated);
-
-                if (newVersion > currentDataVersion) {
-                    console.log('✅ Ada update baru! Version:', newVersion);
-                    updateSyncStatus('syncing', 'Menerima update v' + newVersion + '...');
-
-                    applyDashboardState(data);
-
-                    showToast('🔄 Data diupdate dari cloud! (v' + newVersion + ')');
-                    updateSyncStatus('synced', 'v' + newVersion + ' - ' + (data._lastUpdated || 'now'));
-
-                    document.querySelectorAll('.poster-wrapper,.announcement-wrapper,#video-card,#schedule-card').forEach(el => {
-                        el.classList.remove('data-updated');
-                        setTimeout(() => {
-                            el.classList.add('data-updated');
-                            setTimeout(() => el.classList.remove('data-updated'), 700);
-                        }, 50);
-                    });
-                } else {
-                    console.log('⏭️ Skip - version sama atau lebih lama (current:', currentDataVersion, ', new:', newVersion, ')');
-                }
-            } catch (error) {
-                console.error('❌ Error dalam listener:', error);
-            }
-        };
-
-        database.ref('dashboardData').on('value', window._firebaseListener);
-        console.log('🟢 Real-time listener terpasang!');
-        updateSyncStatus('synced', 'Auto-sync aktif');
+    if (data.announcementData !== undefined) {
+        announcementData = data.announcementData || {};
+        console.log('📢 Announcement:', announcementData.title);
     }
 
-    // ============================================================
-    // COLLECT DATA
-    // ============================================================
-    function collectDashboardState() {
-        const cards = ['mocacinno', 'cappuccino', 'gdf', 'granule'];
-        const runningData = {};
-        cards.forEach(id => {
-            runningData[id] = {
-                name: document.getElementById(`edit-name-${id}`).value,
-                value: document.getElementById(`edit-value-${id}`).value,
-                target: document.getElementById(`edit-target-${id}`).value
-            };
-        });
-
-        // 🔥 AMBIL VIDEO DARI INPUT LINK
-        const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
-        const newVideoData = [];
-        videoInputs.forEach(input => {
-            if (input.value.trim()) {
-                newVideoData.push(input.value.trim());
-            }
-        });
-
-        // 🔥 GABUNGKAN: LINK DARI INPUT + DEFAULT VIDEO
-        const videoToSave = newVideoData.filter(link => link && link.trim() !== '');
-        const finalVideoData = [...videoToSave, ...DEFAULT_VIDEOS];
-
-        console.log('📹 Video yang akan disimpan:', finalVideoData);
-
-        return {
-            posterImages,
-            videoData: finalVideoData,
-            scheduleData,
-            announcementData,
-            runningData,
-            chartData: {
-                mixing: document.getElementById('edit-chart-mixing').value,
-                packing: document.getElementById('edit-chart-packing').value,
-                office: document.getElementById('edit-chart-office').value
-            }
-        };
+    // ✅ VIDEO: GABUNGKAN DATA DARI DB + DEFAULT UNTUK TAMPILAN
+    if (data.videoData !== undefined) {
+        const savedLinks = data.videoData || [];
+        const validLinks = savedLinks.filter(link => link && link.trim() !== '');
+        
+        // ✅ GABUNGKAN: VIDEO DARI DB + DEFAULT (UNTUK TAMPILAN SAJA)
+        videoData = [...validLinks, ...DEFAULT_VIDEOS];
+        console.log('📦 VIDEO dari Supabase (disimpan):', validLinks);
+        console.log('📦 Total video (dengan default untuk tampilan):', videoData.length);
     }
 
-    // ============================================================
-    // SET DEFAULT DATA
-    // ============================================================
-    function setDefaultData() {
-        const defaults = {
-            mocacinno: { name: 'MOCACINNO', value: 95.7, target: 95.0 },
-            cappuccino: { name: 'CAPPUCCINO', value: 93.3, target: 92.0 },
-            gdf: { name: 'GDF MOCAFRIO', value: 96.9, target: 95.5 },
-            granule: { name: 'GRANULE', value: 83.5, target: 83.0 }
-        };
+    if (data.runningData) {
         ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(id => {
-            const d = defaults[id];
-            document.getElementById(`edit-name-${id}`).value = d.name;
-            document.getElementById(`edit-value-${id}`).value = d.value;
-            document.getElementById(`edit-target-${id}`).value = d.target;
+            if (!data.runningData[id]) return;
+            const elName = document.getElementById(`edit-name-${id}`);
+            const elValue = document.getElementById(`edit-value-${id}`);
+            const elTarget = document.getElementById(`edit-target-${id}`);
+            if (elName) elName.value = data.runningData[id].name || id.toUpperCase();
+            if (elValue) elValue.value = data.runningData[id].value || 0;
+            if (elTarget) elTarget.value = data.runningData[id].target || 0;
         });
-        document.getElementById('edit-chart-mixing').value = 92.5;
-        document.getElementById('edit-chart-packing').value = 97.1;
-        document.getElementById('edit-chart-office').value = 94.8;
-        announcementData = {
-            title: 'NO FRAUD, YES TRUST!',
-            subtitle: 'Integritas adalah pilihan, kejujuran adalah identitas kita.',
-            body: '⚠️ FRAUD MERUGIKAN SEMUA PIHAK:\n• Merugikan Perusahaan\n• Berdampak pada Karyawan\n• Merusak Kepercayaan Pelanggan & Partner\n• Menimbulkan Kerugian Finansial\n\n🌟 Jadi bagian dari perubahan! Biasakan jujur, budayakan integritas, cegah fraud bersama.'
+    }
+
+    if (data.chartData) {
+        const elMixing = document.getElementById('edit-chart-mixing');
+        const elPacking = document.getElementById('edit-chart-packing');
+        const elOffice = document.getElementById('edit-chart-office');
+        if (elMixing) elMixing.value = data.chartData.mixing || 92.5;
+        if (elPacking) elPacking.value = data.chartData.packing || 97.1;
+        if (elOffice) elOffice.value = data.chartData.office || 94.8;
+    }
+
+    renderVideoSlide();
+    renderPosterSlide();
+    renderAnnouncement();
+    renderSchedule();
+    renderRunningCards();
+    initChart();
+
+    lastSyncedData = data;
+}
+
+// ============================================================
+// COLLECT DATA - TANPA VIDEO DEFAULT
+// ============================================================
+function collectDashboardState() {
+    const cards = ['mocacinno', 'cappuccino', 'gdf', 'granule'];
+    const runningData = {};
+    cards.forEach(id => {
+        runningData[id] = {
+            name: document.getElementById(`edit-name-${id}`).value,
+            value: document.getElementById(`edit-value-${id}`).value,
+            target: document.getElementById(`edit-target-${id}`).value
         };
-        scheduleData = [
-            { date: '2026-06-29', activity: 'Produksi GDF Mocafrio', status: 'ongoing' },
-            { date: '2026-06-30', activity: 'Produksi Mocacinno', status: 'upcoming' },
-            { date: '2026-07-01', activity: 'Maintenance & Cleaning', status: 'done' }
-        ];
-        posterImages = [];
+    });
 
-        // 🔥 PASTIKAN VIDEO DEFAULT TERSIMPAN
-        videoData = [...DEFAULT_VIDEOS];
-        console.log('📁 Default videos from asset folder:', videoData);
-    }
-
-    // ============================================================
-    // DIFF CALC
-    // ============================================================
-    function calculateDiff(id) {
-        const v = parseFloat(document.getElementById(`edit-value-${id}`).value) || 0;
-        const t = parseFloat(document.getElementById(`edit-target-${id}`).value) || 0;
-        const d = v - t;
-        const symbol = d > 0 ? '▲' : d < 0 ? '▼' : '•';
-        const cls = d > 0 ? 'positive' : d < 0 ? 'negative' : 'neutral';
-        const el = document.getElementById(`diff-display-${id}`);
-        if (el) {
-            el.textContent = `${symbol} ${d >= 0 ? '+' : ''}${d.toFixed(1)}%`;
-            el.className = `diff-display ${cls}`;
+    // ✅ AMBIL VIDEO HANYA DARI INPUT, TANPA DEFAULT
+    const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
+    const newVideoData = [];
+    videoInputs.forEach(input => {
+        if (input.value.trim()) {
+            newVideoData.push(input.value.trim());
         }
-        renderRunningCards();
-    }
+    });
 
-    // ============================================================
-    // RUNNING CARDS
-    // ============================================================
-    function renderRunningCards() {
-        const icons = { mocacinno: '🔴', cappuccino: '🔵', gdf: '🟡', granule: '🟢' };
-        const cards = ['mocacinno', 'cappuccino', 'gdf', 'granule'];
-        let html = '';
-        for (let r = 0; r < 2; r++) {
-            cards.forEach(id => {
-                const name = document.getElementById(`edit-name-${id}`)?.value || id.toUpperCase();
-                const value = document.getElementById(`edit-value-${id}`)?.value || '0';
-                const target = document.getElementById(`edit-target-${id}`)?.value || '0';
-                const diffEl = document.getElementById(`diff-display-${id}`);
-                const diff = diffEl ? diffEl.textContent : '• 0.0%';
-                const cls = diff.includes('▲') ? 'pos' : diff.includes('▼') ? 'neg' : 'neu';
-                html += `
-                    <div class="ri">
-                        <span class="icon">${icons[id]}</span>
-                        <span class="name">${name}</span>
-                        <span class="val">${value}%</span>
-                        <span class="tgt">Target: ${target}%</span>
-                        <span class="diff ${cls}">${diff}</span>
-                    </div>`;
-            });
+    console.log('📹 Video yang akan disimpan (hanya dari input):', newVideoData);
+
+    return {
+        posterImages,
+        videoData: newVideoData,  // ← HANYA DARI INPUT, TANPA DEFAULT!
+        scheduleData,
+        announcementData,
+        runningData,
+        chartData: {
+            mixing: document.getElementById('edit-chart-mixing').value,
+            packing: document.getElementById('edit-chart-packing').value,
+            office: document.getElementById('edit-chart-office').value
         }
-        const container = document.getElementById('runningItems');
-        if (container) container.innerHTML = html;
-    }
+    };
+}
 
-    // ============================================================
-    // DATETIME
-    // ============================================================
-    function updateDate() {
-        const now = new Date();
-        const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-        const mons = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-        document.getElementById('dayName').textContent = days[now.getDay()];
-        document.getElementById('dateNumber').textContent = ', ' + now.getDate();
-        document.getElementById('monthYear').textContent = ' ' + mons[now.getMonth()] + ' ' + now.getFullYear();
-    }
+// ============================================================
+// SET DEFAULT DATA
+// ============================================================
+function setDefaultData() {
+    const defaults = {
+        mocacinno: { name: 'MOCACINNO', value: 95.7, target: 95.0 },
+        cappuccino: { name: 'CAPPUCCINO', value: 93.3, target: 92.0 },
+        gdf: { name: 'GDF MOCAFRIO', value: 96.9, target: 95.5 },
+        granule: { name: 'GRANULE', value: 83.5, target: 83.0 }
+    };
+    ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(id => {
+        const d = defaults[id];
+        document.getElementById(`edit-name-${id}`).value = d.name;
+        document.getElementById(`edit-value-${id}`).value = d.value;
+        document.getElementById(`edit-target-${id}`).value = d.target;
+    });
+    document.getElementById('edit-chart-mixing').value = 92.5;
+    document.getElementById('edit-chart-packing').value = 97.1;
+    document.getElementById('edit-chart-office').value = 94.8;
+    announcementData = {
+        title: 'NO FRAUD, YES TRUST!',
+        subtitle: 'Integritas adalah pilihan, kejujuran adalah identitas kita.',
+        body: '⚠️ FRAUD MERUGIKAN SEMUA PIHAK:\n• Merugikan Perusahaan\n• Berdampak pada Karyawan\n• Merusak Kepercayaan Pelanggan & Partner\n• Menimbulkan Kerugian Finansial\n\n🌟 Jadi bagian dari perubahan! Biasakan jujur, budayakan integritas, cegah fraud bersama.'
+    };
+    scheduleData = [
+        { date: '2026-06-29', activity: 'Produksi GDF Mocafrio', status: 'ongoing' },
+        { date: '2026-06-30', activity: 'Produksi Mocacinno', status: 'upcoming' },
+        { date: '2026-07-01', activity: 'Maintenance & Cleaning', status: 'done' }
+    ];
+    posterImages = [];
+    videoData = [...DEFAULT_VIDEOS];
+}
 
-    function updateClock() {
-        document.getElementById('clock').innerText = new Date().toLocaleTimeString('id-ID', {
-            hour: '2-digit', minute: '2-digit', second: '2-digit'
+// ============================================================
+// DIFF CALC
+// ============================================================
+function calculateDiff(id) {
+    const v = parseFloat(document.getElementById(`edit-value-${id}`).value) || 0;
+    const t = parseFloat(document.getElementById(`edit-target-${id}`).value) || 0;
+    const d = v - t;
+    const symbol = d > 0 ? '▲' : d < 0 ? '▼' : '•';
+    const cls = d > 0 ? 'positive' : d < 0 ? 'negative' : 'neutral';
+    const el = document.getElementById(`diff-display-${id}`);
+    if (el) {
+        el.textContent = `${symbol} ${d >= 0 ? '+' : ''}${d.toFixed(1)}%`;
+        el.className = `diff-display ${cls}`;
+    }
+    renderRunningCards();
+}
+
+// ============================================================
+// RUNNING CARDS
+// ============================================================
+function renderRunningCards() {
+    const icons = { mocacinno: '🔴', cappuccino: '🔵', gdf: '🟡', granule: '🟢' };
+    const cards = ['mocacinno', 'cappuccino', 'gdf', 'granule'];
+    let html = '';
+    for (let r = 0; r < 2; r++) {
+        cards.forEach(id => {
+            const name = document.getElementById(`edit-name-${id}`)?.value || id.toUpperCase();
+            const value = document.getElementById(`edit-value-${id}`)?.value || '0';
+            const target = document.getElementById(`edit-target-${id}`)?.value || '0';
+            const diffEl = document.getElementById(`diff-display-${id}`);
+            const diff = diffEl ? diffEl.textContent : '• 0.0%';
+            const cls = diff.includes('▲') ? 'pos' : diff.includes('▼') ? 'neg' : 'neu';
+            html += `
+                <div class="ri">
+                    <span class="icon">${icons[id]}</span>
+                    <span class="name">${name}</span>
+                    <span class="val">${value}%</span>
+                    <span class="tgt">Target: ${target}%</span>
+                    <span class="diff ${cls}">${diff}</span>
+                </div>`;
         });
     }
+    const container = document.getElementById('runningItems');
+    if (container) container.innerHTML = html;
+}
 
-    // ============================================================
-    // POSTER SLIDE
-    // ============================================================
-    function renderPosterSlide() {
-        const track = document.getElementById('posterSlides');
-        const inds = document.getElementById('posterIndicators');
-        const dateEl = document.getElementById('posterDate');
-        const now = new Date();
-        dateEl.textContent = `📅 ${now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+// ============================================================
+// DATETIME
+// ============================================================
+function updateDate() {
+    const now = new Date();
+    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const mons = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    document.getElementById('dayName').textContent = days[now.getDay()];
+    document.getElementById('dateNumber').textContent = ', ' + now.getDate();
+    document.getElementById('monthYear').textContent = ' ' + mons[now.getMonth()] + ' ' + now.getFullYear();
+}
 
-        if (!posterImages.length || posterImages.every(i => !i)) {
-            track.innerHTML = `<div class="slide"><div class="slide-empty">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                <p>Belum ada poster</p><p style="font-size:0.5rem;color:#475569;">Upload melalui tombol Edit</p></div></div>`;
-            inds.innerHTML = '';
-            return;
-        }
-        track.innerHTML = posterImages.map((img, i) => `<div class="slide" data-index="${i}"><img src="${img}" alt="Poster ${i+1}"></div>`).join('');
-        inds.innerHTML = posterImages.map((_, i) => `<button class="dot-ind${i === currentPosterSlide ? ' active' : ''}" onclick="goToPosterSlide(${i})"></button>`).join('');
-        updatePosterSlidePos();
-        startPosterAutoSlide();
+function updateClock() {
+    document.getElementById('clock').innerText = new Date().toLocaleTimeString('id-ID', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+}
+
+// ============================================================
+// POSTER SLIDE
+// ============================================================
+function renderPosterSlide() {
+    const track = document.getElementById('posterSlides');
+    const inds = document.getElementById('posterIndicators');
+    const dateEl = document.getElementById('posterDate');
+    const now = new Date();
+    dateEl.textContent = `📅 ${now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+
+    if (!posterImages.length || posterImages.every(i => !i)) {
+        track.innerHTML = `<div class="slide"><div class="slide-empty">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            <p>Belum ada poster</p><p style="font-size:0.5rem;color:#475569;">Upload melalui tombol Edit</p></div></div>`;
+        inds.innerHTML = '';
+        return;
     }
+    track.innerHTML = posterImages.map((img, i) => `<div class="slide" data-index="${i}"><img src="${img}" alt="Poster ${i+1}"></div>`).join('');
+    inds.innerHTML = posterImages.map((_, i) => `<button class="dot-ind${i === currentPosterSlide ? ' active' : ''}" onclick="goToPosterSlide(${i})"></button>`).join('');
+    updatePosterSlidePos();
+    startPosterAutoSlide();
+}
 
-    function updatePosterSlidePos() {
-        const t = document.getElementById('posterSlides');
-        if (t) t.style.transform = `translateX(-${currentPosterSlide * 100}%)`;
-    }
+function updatePosterSlidePos() {
+    const t = document.getElementById('posterSlides');
+    if (t) t.style.transform = `translateX(-${currentPosterSlide * 100}%)`;
+}
 
-    function goToPosterSlide(index) {
-        if (!posterImages.length) return;
-        currentPosterSlide = ((index % posterImages.length) + posterImages.length) % posterImages.length;
-        renderPosterSlide();
-    }
+function goToPosterSlide(index) {
+    if (!posterImages.length) return;
+    currentPosterSlide = ((index % posterImages.length) + posterImages.length) % posterImages.length;
+    renderPosterSlide();
+}
 
-    function startPosterAutoSlide() {
-        stopPosterAutoSlide();
-        if (posterImages.length <= 1) return;
-        posterInterval = setInterval(() => goToPosterSlide(currentPosterSlide + 1), 5000);
-    }
+function startPosterAutoSlide() {
+    stopPosterAutoSlide();
+    if (posterImages.length <= 1) return;
+    posterInterval = setInterval(() => goToPosterSlide(currentPosterSlide + 1), 5000);
+}
 
-    function stopPosterAutoSlide() {
-        if (posterInterval) { clearInterval(posterInterval);
-            posterInterval = null; }
-    }
+function stopPosterAutoSlide() {
+    if (posterInterval) { clearInterval(posterInterval);
+        posterInterval = null; }
+}
 
-    // ============================================================
-    // VIDEO HANDLERS
-    // ============================================================
+// ============================================================
+// VIDEO HANDLERS
+// ============================================================
 
-    function playCurrentVideo() {
-        const videos = document.querySelectorAll('#videoSlides video');
-        videos.forEach((video, index) => {
-            if (index === currentVideoSlide) {
-                video.muted = true;
-                video.playsInline = true;
-
-                if (videoData.length === 1) {
-                    video.loop = true;
-                } else {
-                    video.loop = false;
-                }
-
-                if (video.paused || video.ended) {
-                    console.log(`🔄 Video ${index + 1} berhenti, restart...`);
-                    video.currentTime = 0;
-                    const playPromise = video.play();
-                    if (playPromise !== undefined) {
-                        playPromise.catch(err => {
-                            console.log(`⚠️ Play error video ${index + 1}:`, err.message);
-                            setTimeout(() => {
-                                video.play().catch(e => console.log('Fallback play error:', e));
-                            }, 500);
-                        });
-                    }
-                } else {
-                    if (video.readyState >= 2) {
-                        const playPromise = video.play();
-                        if (playPromise !== undefined) {
-                            playPromise.catch(err => {
-                                console.log(`⚠️ Play error video ${index + 1}:`, err.message);
-                            });
-                        }
-                    }
-                }
-            } else {
-                video.pause();
-            }
-        });
-    }
-
-    function startVideoHealthCheck() {
-        stopVideoHealthCheck();
-        videoCheckInterval = setInterval(() => {
-            const videos = document.querySelectorAll('#videoSlides video');
-            let needRestart = false;
-            videos.forEach((video, index) => {
-                if (index === currentVideoSlide) {
-                    if (video.paused && !video.ended) {
-                        console.log(`⚠️ Video ${index + 1} terdeteksi berhenti, restart...`);
-                        needRestart = true;
-                    }
-                    if (video.readyState < 2 && !video.paused) {
-                        console.log(`⚠️ Video ${index + 1} buffering, coba play ulang...`);
-                        needRestart = true;
-                    }
-                }
-            });
-            if (needRestart) {
-                playCurrentVideo();
-            }
-        }, 2000);
-    }
-
-    function stopVideoHealthCheck() {
-        if (videoCheckInterval) {
-            clearInterval(videoCheckInterval);
-            videoCheckInterval = null;
-        }
-    }
-
-    function setupVisibilityHandler() {
-        document.addEventListener('visibilitychange', function() {
-            if (!document.hidden) {
-                console.log('🔄 Tab aktif kembali, restart video...');
-                setTimeout(() => {
-                    playCurrentVideo();
-                    if (videoData.length > 1) {
-                        startVideoAutoSlide();
-                    }
-                }, 300);
-            } else {
-                console.log('⏸️ Tab tidak aktif, pause auto-slide...');
-                stopVideoAutoSlide();
-            }
-        });
-    }
-
-    function setupPageVisibilityHandler() {
-        setInterval(() => {
-            if (!document.hidden) {
-                const videos = document.querySelectorAll('#videoSlides video');
-                videos.forEach((video, index) => {
-                    if (index === currentVideoSlide && video.paused && !video.ended) {
-                        console.log('🔄 Page visible, restart video...');
-                        video.play().catch(e => console.log('Play error:', e));
-                    }
-                });
-            }
-        }, 5000);
-    }
-
-    function setupNetworkHandler() {
-        window.addEventListener('online', function() {
-            console.log('🔄 Koneksi kembali online, restart video...');
-            setTimeout(() => { playCurrentVideo(); }, 500);
-        });
-        window.addEventListener('offline', function() {
-            console.log('⚠️ Koneksi offline, video mungkin berhenti');
-        });
-    }
-
-    function onVideoPause(index) {
+function playCurrentVideo() {
+    const videos = document.querySelectorAll('#videoSlides video');
+    videos.forEach((video, index) => {
         if (index === currentVideoSlide) {
-            console.log(`⏸️ Video ${index + 1} pause, coba play ulang...`);
-            setTimeout(() => {
-                const video = document.querySelector(`#video-player-${index}`);
-                if (video && video.paused && !video.ended) {
-                    video.play().catch(e => console.log('Retry play on pause:', e));
-                }
-            }, 1000);
-        }
-    }
+            video.muted = true;
+            video.playsInline = true;
 
-    function onVideoWaiting(index) {
-        if (index === currentVideoSlide) {
-            console.log(`⏳ Video ${index + 1} buffering...`);
-            setTimeout(() => {
-                const video = document.querySelector(`#video-player-${index}`);
-                if (video && video.readyState < 2) {
-                    video.load();
-                    setTimeout(() => {
-                        video.play().catch(e => console.log('Retry play on waiting:', e));
-                    }, 500);
-                }
-            }, 3000);
-        }
-    }
-
-    function onVideoEnded(index) {
-        console.log(`📹 Video ${index + 1} selesai diputar`);
-        if (videoData.length === 1) {
-            console.log('🔄 Hanya 1 video, akan loop otomatis');
-            return;
-        }
-        if (index === currentVideoSlide && videoData.length > 1) {
-            const nextSlide = (currentVideoSlide + 1) % videoData.length;
-            console.log(`➡️ Pindah ke video ${nextSlide + 1}`);
-            goToVideoSlide(nextSlide);
-        }
-    }
-
-    function handleVideoMetadata(index, duration) {
-        if (duration && duration > 0 && !isNaN(duration)) {
-            videoDurations[index] = duration;
-            console.log(`📹 Video ${index + 1} durasi: ${duration.toFixed(1)} detik`);
-            const allDetected = videoData.every((v, i) => {
-                return videoDurations[i] !== undefined && videoDurations[i] > 0;
-            });
-            if (allDetected && videoData.length > 1) {
-                startVideoAutoSlide();
-            }
-        }
-    }
-
-    function handleVideoError(index) {
-        console.warn(`⚠️ Error loading video ${index + 1}`);
-        if (!videoDurations[index]) {
-            videoDurations[index] = 5;
-            const allDetected = videoData.every((v, i) => {
-                return videoDurations[i] !== undefined && videoDurations[i] > 0;
-            });
-            if (allDetected && videoData.length > 1) {
-                startVideoAutoSlide();
-            }
-        }
-        setTimeout(() => {
-            if (index === currentVideoSlide) {
-                const video = document.querySelector(`#video-player-${index}`);
-                if (video) {
-                    video.load();
-                    setTimeout(() => {
-                        video.play().catch(e => console.log('Retry play error:', e));
-                    }, 500);
-                }
-            }
-        }, 3000);
-    }
-
-    function renderVideoSlide() {
-        const container = document.getElementById('videoSlides');
-        const inds = document.getElementById('videoIndicators');
-
-        if (!videoData.length || videoData.every(v => !v)) {
-            container.innerHTML = `<div class="video-slide"><div class="slide-empty">
-                <svg style="width:36px;height:36px;margin:0 auto 6px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                <p>Belum ada video</p></div></div>`;
-            inds.innerHTML = '';
-            return;
-        }
-
-        videoDurations = new Array(videoData.length).fill(undefined);
-
-        container.innerHTML = videoData.map((vid, i) => {
-            const isActive = i === currentVideoSlide;
-            const shouldLoop = videoData.length === 1;
-            return `
-                <div class="video-slide" data-index="${i}" style="${isActive ? '' : 'display:none;'}">
-                    <video 
-                        controls 
-                        ${isActive ? 'autoplay' : ''}
-                        muted 
-                        playsinline 
-                        width="100%" 
-                        height="100%" 
-                        id="video-player-${i}"
-                        style="object-fit:contain; background:#000;"
-                        preload="auto"
-                        ${shouldLoop ? 'loop' : ''}
-                        onloadedmetadata="handleVideoMetadata(${i}, this.duration)"
-                        onerror="handleVideoError(${i})"
-                        onended="onVideoEnded(${i})"
-                        onpause="onVideoPause(${i})"
-                        onwaiting="onVideoWaiting(${i})">
-                        <source src="${vid}" type="video/mp4">
-                        Your browser does not support the video tag.
-                    </video>
-                    <span class="vid-label">📹 Video ${i+1}</span>
-                </div>
-            `;
-        }).join('');
-
-        inds.innerHTML = videoData.map((_, i) =>
-            `<button class="dot-ind${i === currentVideoSlide ? ' active' : ''}" onclick="goToVideoSlide(${i})"></button>`
-        ).join('');
-
-        setTimeout(() => {
-            initializeVideoPlayer();
-        }, 300);
-    }
-
-    function initializeVideoPlayer() {
-        const videoElements = document.querySelectorAll('#videoSlides video');
-        videoElements.forEach((video, index) => {
             if (videoData.length === 1) {
                 video.loop = true;
             } else {
                 video.loop = false;
             }
-            if (video.readyState >= 1 && video.duration && video.duration > 0) {
-                handleVideoMetadata(index, video.duration);
-            }
-        });
-        setTimeout(() => {
-            playCurrentVideo();
-        }, 100);
-    }
 
-    function startVideoAutoSlide() {
-        stopVideoAutoSlide();
-        if (videoData.length <= 1) {
-            console.log('⏹️ Hanya 1 video, tidak auto-slide (akan loop)');
-            return;
-        }
-        console.log('▶️ Auto-slide dimulai (menggunakan event onended)');
-    }
-
-    function stopVideoAutoSlide() {
-        if (videoTimeout) {
-            clearTimeout(videoTimeout);
-            videoTimeout = null;
-            console.log('⏹️ Auto-slide dihentikan');
-        }
-    }
-
-    function goToVideoSlide(index) {
-        if (!videoData.length) return;
-        index = ((index % videoData.length) + videoData.length) % videoData.length;
-        if (index === currentVideoSlide) {
-            const video = document.querySelector(`#video-player-${index}`);
-            if (video) {
+            if (video.paused || video.ended) {
+                console.log(`🔄 Video ${index + 1} berhenti, restart...`);
                 video.currentTime = 0;
-                video.play().catch(e => console.log('Play error:', e));
-            }
-            return;
-        }
-        currentVideoSlide = index;
-        const slides = document.querySelectorAll('#videoSlides .video-slide');
-        slides.forEach((slide, i) => {
-            slide.style.display = i === index ? '' : 'none';
-            const video = slide.querySelector('video');
-            if (video) {
-                if (i === index) {
-                    video.muted = true;
-                    video.playsInline = true;
-                    if (videoData.length === 1) {
-                        video.loop = true;
-                    } else {
-                        video.loop = false;
+                const playPromise = video.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(err => {
+                        console.log(`⚠️ Play error video ${index + 1}:`, err.message);
+                        setTimeout(() => {
+                            video.play().catch(e => console.log('Fallback play error:', e));
+                        }, 500);
+                    });
+                }
+            } else {
+                if (video.readyState >= 2) {
+                    const playPromise = video.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(err => {
+                            console.log(`⚠️ Play error video ${index + 1}:`, err.message);
+                        });
                     }
-                    video.currentTime = 0;
-                    setTimeout(() => {
-                        video.play().catch(e => console.log('Play error:', e));
-                    }, 50);
-                } else {
-                    video.pause();
+                }
+            }
+        } else {
+            video.pause();
+        }
+    });
+}
+
+function startVideoHealthCheck() {
+    stopVideoHealthCheck();
+    videoCheckInterval = setInterval(() => {
+        const videos = document.querySelectorAll('#videoSlides video');
+        let needRestart = false;
+        videos.forEach((video, index) => {
+            if (index === currentVideoSlide) {
+                if (video.paused && !video.ended) {
+                    console.log(`⚠️ Video ${index + 1} terdeteksi berhenti, restart...`);
+                    needRestart = true;
+                }
+                if (video.readyState < 2 && !video.paused) {
+                    console.log(`⚠️ Video ${index + 1} buffering, coba play ulang...`);
+                    needRestart = true;
                 }
             }
         });
-        const inds = document.querySelectorAll('#videoIndicators .dot-ind');
-        inds.forEach((dot, i) => {
-            dot.classList.toggle('active', i === index);
-        });
-    }
-
-    // ============================================================
-    // VIDEO LINK ROWS
-    // ============================================================
-    function renderVideoLinkRows() {
-        const c = document.getElementById('videoLinkContainer');
-        if (!c) return;
-
-        // 🔥 TAMPILKAN SEMUA VIDEO (LINK + DEFAULT)
-        const allVideos = videoData || [];
-        const linkOnly = allVideos.filter(v => !DEFAULT_VIDEOS.includes(v));
-
-        c.innerHTML = '';
-
-        if (!linkOnly || linkOnly.length === 0) {
-            c.innerHTML = `<div style="color:#64748b;font-size:0.6rem;text-align:center;padding:8px 0;">
-                Belum ada link video. Klik "Tambah Link" untuk menambahkan.
-                <br><span style="font-size:0.5rem;color:#475569;">Default video dari asset tetap berjalan.</span>
-            </div>`;
-            return;
+        if (needRestart) {
+            playCurrentVideo();
         }
+    }, 2000);
+}
 
-        let html = '';
-        linkOnly.forEach((link, i) => {
-            html += `
-                <div class="file-upload-row" id="video-link-row-${i}" style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
-                    <span class="file-label">#${i+1}</span>
-                    <input type="text" id="video-link-input-${i}" value="${link || ''}" placeholder="Masukkan link video..." style="flex:2; padding:4px 8px; border-radius:4px; border:1px solid #334155; background:#0f172a; color:white;">
-                    <button class="btn-add-file" onclick="saveVideoLink(${i})" style="padding:3px 12px; background:#22c55e; color:white; border:none; border-radius:4px; cursor:pointer; font-size:0.6rem;">💾 Simpan</button>
-                    <button class="btn-remove-file" onclick="removeVideoLink(${i})">✕</button>
-                </div>
-            `;
-        });
-        c.innerHTML = html;
+function stopVideoHealthCheck() {
+    if (videoCheckInterval) {
+        clearInterval(videoCheckInterval);
+        videoCheckInterval = null;
     }
+}
 
-    function saveVideoLink(index) {
-        const input = document.getElementById(`video-link-input-${index}`);
-        if (!input) return;
-
-        const link = input.value.trim();
-        if (!link) {
-            showToast('⚠️ Masukkan link video terlebih dahulu!', true);
-            return;
-        }
-
-        // 🔥 AMBIL SEMUA LINK (KECUALI DEFAULT)
-        const existingLinks = videoData.filter(v => !DEFAULT_VIDEOS.includes(v));
-        if (index < existingLinks.length) {
-            existingLinks[index] = link;
+function setupVisibilityHandler() {
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) {
+            console.log('🔄 Tab aktif kembali, restart video...');
+            setTimeout(() => {
+                playCurrentVideo();
+                if (videoData.length > 1) {
+                    startVideoAutoSlide();
+                }
+            }, 300);
         } else {
-            existingLinks.push(link);
+            console.log('⏸️ Tab tidak aktif, pause auto-slide...');
+            stopVideoAutoSlide();
         }
+    });
+}
 
-        // 🔥 GABUNGKAN DENGAN DEFAULT
-        videoData = [...existingLinks, ...DEFAULT_VIDEOS];
-        showToast('✅ Link video berhasil disimpan!');
-        renderVideoLinkRows();
-        renderVideoSlide();
-    }
-
-    function addVideoLink() {
-        const existingLinks = videoData.filter(v => !DEFAULT_VIDEOS.includes(v));
-        existingLinks.push('');
-        videoData = [...existingLinks, ...DEFAULT_VIDEOS];
-        renderVideoLinkRows();
-        renderVideoSlide();
-    }
-
-    function removeVideoLink(i) {
-        const existingLinks = videoData.filter(v => !DEFAULT_VIDEOS.includes(v));
-        existingLinks.splice(i, 1);
-        videoData = [...existingLinks, ...DEFAULT_VIDEOS];
-        if (currentVideoSlide >= videoData.length) currentVideoSlide = Math.max(0, videoData.length - 1);
-        renderVideoLinkRows();
-        renderVideoSlide();
-    }
-
-    // ============================================================
-    // POSTER UPLOAD ROWS
-    // ============================================================
-    function renderPosterUploadRows() {
-        const c = document.getElementById('posterUploadContainer');
-        if (!posterImages.length) {
-            c.innerHTML = `<div style="color:#64748b;font-size:0.6rem;text-align:center;padding:8px 0;">Belum ada gambar. Klik "Tambah Gambar" untuk menambahkan.</div>`;
-            return;
+function setupPageVisibilityHandler() {
+    setInterval(() => {
+        if (!document.hidden) {
+            const videos = document.querySelectorAll('#videoSlides video');
+            videos.forEach((video, index) => {
+                if (index === currentVideoSlide && video.paused && !video.ended) {
+                    console.log('🔄 Page visible, restart video...');
+                    video.play().catch(e => console.log('Play error:', e));
+                }
+            });
         }
-        c.innerHTML = posterImages.map((img, i) => `
-            <div class="file-upload-row" id="poster-row-${i}">
+    }, 5000);
+}
+
+function setupNetworkHandler() {
+    window.addEventListener('online', function() {
+        console.log('🔄 Koneksi kembali online, restart video & sync...');
+        setTimeout(() => {
+            playCurrentVideo();
+            forceSync();
+        }, 500);
+    });
+    window.addEventListener('offline', function() {
+        console.log('⚠️ Koneksi offline, video mungkin berhenti');
+        updateConnectionStatus('disconnected');
+    });
+}
+
+function onVideoPause(index) {
+    if (index === currentVideoSlide) {
+        console.log(`⏸️ Video ${index + 1} pause, coba play ulang...`);
+        setTimeout(() => {
+            const video = document.querySelector(`#video-player-${index}`);
+            if (video && video.paused && !video.ended) {
+                video.play().catch(e => console.log('Retry play on pause:', e));
+            }
+        }, 1000);
+    }
+}
+
+function onVideoWaiting(index) {
+    if (index === currentVideoSlide) {
+        console.log(`⏳ Video ${index + 1} buffering...`);
+        setTimeout(() => {
+            const video = document.querySelector(`#video-player-${index}`);
+            if (video && video.readyState < 2) {
+                video.load();
+                setTimeout(() => {
+                    video.play().catch(e => console.log('Retry play on waiting:', e));
+                }, 500);
+            }
+        }, 3000);
+    }
+}
+
+function onVideoEnded(index) {
+    console.log(`📹 Video ${index + 1} selesai diputar`);
+    if (videoData.length === 1) {
+        console.log('🔄 Hanya 1 video, akan loop otomatis');
+        return;
+    }
+    if (index === currentVideoSlide && videoData.length > 1) {
+        const nextSlide = (currentVideoSlide + 1) % videoData.length;
+        console.log(`➡️ Pindah ke video ${nextSlide + 1}`);
+        goToVideoSlide(nextSlide);
+    }
+}
+
+function handleVideoMetadata(index, duration) {
+    if (duration && duration > 0 && !isNaN(duration)) {
+        videoDurations[index] = duration;
+        console.log(`📹 Video ${index + 1} durasi: ${duration.toFixed(1)} detik`);
+        const allDetected = videoData.every((v, i) => {
+            return videoDurations[i] !== undefined && videoDurations[i] > 0;
+        });
+        if (allDetected && videoData.length > 1) {
+            startVideoAutoSlide();
+        }
+    }
+}
+
+function handleVideoError(index) {
+    console.warn(`⚠️ Error loading video ${index + 1}`);
+    if (!videoDurations[index]) {
+        videoDurations[index] = 5;
+        const allDetected = videoData.every((v, i) => {
+            return videoDurations[i] !== undefined && videoDurations[i] > 0;
+        });
+        if (allDetected && videoData.length > 1) {
+            startVideoAutoSlide();
+        }
+    }
+    setTimeout(() => {
+        if (index === currentVideoSlide) {
+            const video = document.querySelector(`#video-player-${index}`);
+            if (video) {
+                video.load();
+                setTimeout(() => {
+                    video.play().catch(e => console.log('Retry play error:', e));
+                }, 500);
+            }
+        }
+    }, 3000);
+}
+
+function renderVideoSlide() {
+    const container = document.getElementById('videoSlides');
+    const inds = document.getElementById('videoIndicators');
+
+    if (!videoData.length || videoData.every(v => !v)) {
+        container.innerHTML = `<div class="video-slide"><div class="slide-empty">
+            <svg style="width:36px;height:36px;margin:0 auto 6px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            <p>Belum ada video</p></div></div>`;
+        inds.innerHTML = '';
+        return;
+    }
+
+    videoDurations = new Array(videoData.length).fill(undefined);
+
+    container.innerHTML = videoData.map((vid, i) => {
+        const isActive = i === currentVideoSlide;
+        const shouldLoop = videoData.length === 1;
+        return `
+            <div class="video-slide" data-index="${i}" style="${isActive ? '' : 'display:none;'}">
+                <video 
+                    controls 
+                    ${isActive ? 'autoplay' : ''}
+                    muted 
+                    playsinline 
+                    width="100%" 
+                    height="100%" 
+                    id="video-player-${i}"
+                    style="object-fit:contain; background:#000;"
+                    preload="auto"
+                    ${shouldLoop ? 'loop' : ''}
+                    onloadedmetadata="handleVideoMetadata(${i}, this.duration)"
+                    onerror="handleVideoError(${i})"
+                    onended="onVideoEnded(${i})"
+                    onpause="onVideoPause(${i})"
+                    onwaiting="onVideoWaiting(${i})">
+                    <source src="${vid}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+                <span class="vid-label">📹 Video ${i+1}</span>
+            </div>
+        `;
+    }).join('');
+
+    inds.innerHTML = videoData.map((_, i) =>
+        `<button class="dot-ind${i === currentVideoSlide ? ' active' : ''}" onclick="goToVideoSlide(${i})"></button>`
+    ).join('');
+
+    setTimeout(() => {
+        initializeVideoPlayer();
+    }, 300);
+}
+
+function initializeVideoPlayer() {
+    const videoElements = document.querySelectorAll('#videoSlides video');
+    videoElements.forEach((video, index) => {
+        if (videoData.length === 1) {
+            video.loop = true;
+        } else {
+            video.loop = false;
+        }
+        if (video.readyState >= 1 && video.duration && video.duration > 0) {
+            handleVideoMetadata(index, video.duration);
+        }
+    });
+    setTimeout(() => {
+        playCurrentVideo();
+    }, 100);
+}
+
+function startVideoAutoSlide() {
+    stopVideoAutoSlide();
+    if (videoData.length <= 1) {
+        console.log('⏹️ Hanya 1 video, tidak auto-slide (akan loop)');
+        return;
+    }
+    console.log('▶️ Auto-slide dimulai (menggunakan event onended)');
+}
+
+function stopVideoAutoSlide() {
+    if (videoTimeout) {
+        clearTimeout(videoTimeout);
+        videoTimeout = null;
+        console.log('⏹️ Auto-slide dihentikan');
+    }
+}
+
+function goToVideoSlide(index) {
+    if (!videoData.length) return;
+    index = ((index % videoData.length) + videoData.length) % videoData.length;
+    if (index === currentVideoSlide) {
+        const video = document.querySelector(`#video-player-${index}`);
+        if (video) {
+            video.currentTime = 0;
+            video.play().catch(e => console.log('Play error:', e));
+        }
+        return;
+    }
+    currentVideoSlide = index;
+    const slides = document.querySelectorAll('#videoSlides .video-slide');
+    slides.forEach((slide, i) => {
+        slide.style.display = i === index ? '' : 'none';
+        const video = slide.querySelector('video');
+        if (video) {
+            if (i === index) {
+                video.muted = true;
+                video.playsInline = true;
+                if (videoData.length === 1) {
+                    video.loop = true;
+                } else {
+                    video.loop = false;
+                }
+                video.currentTime = 0;
+                setTimeout(() => {
+                    video.play().catch(e => console.log('Play error:', e));
+                }, 50);
+            } else {
+                video.pause();
+            }
+        }
+    });
+    const inds = document.querySelectorAll('#videoIndicators .dot-ind');
+    inds.forEach((dot, i) => {
+        dot.classList.toggle('active', i === index);
+    });
+}
+
+// ============================================================
+// VIDEO LINK ROWS - HANYA TAMPILKAN VIDEO DARI INPUT
+// ============================================================
+function renderVideoLinkRows() {
+    const c = document.getElementById('videoLinkContainer');
+    if (!c) return;
+
+    // ✅ AMBIL HANYA VIDEO DARI DATABASE (TANPA DEFAULT)
+    const allVideos = videoData || [];
+    const linkOnly = allVideos.filter(v => !DEFAULT_VIDEOS.includes(v));
+
+    c.innerHTML = '';
+
+    if (!linkOnly || linkOnly.length === 0) {
+        c.innerHTML = `<div style="color:#64748b;font-size:0.6rem;text-align:center;padding:8px 0;">
+            Belum ada link video. Klik "Tambah Link" untuk menambahkan.
+            <br><span style="font-size:0.5rem;color:#475569;">Default video dari asset tetap berjalan untuk tampilan.</span>
+        </div>`;
+        return;
+    }
+
+    let html = '';
+    linkOnly.forEach((link, i) => {
+        html += `
+            <div class="file-upload-row" id="video-link-row-${i}" style="display:flex; gap:5px; align-items:center; margin-bottom:4px;">
                 <span class="file-label">#${i+1}</span>
-                <input type="file" accept="image/*" onchange="handlePosterFileChange(${i}, this)">
-                <img id="poster-preview-${i}" class="preview-small" src="${img || ''}" style="${img ? 'display:block;' : 'display:none;'}">
-                <button class="btn-remove-file" onclick="removePosterImage(${i})">✕</button>
-            </div>`).join('');
+                <input type="text" id="video-link-input-${i}" value="${link || ''}" placeholder="Masukkan link video..." style="flex:2; padding:4px 8px; border-radius:4px; border:1px solid #334155; background:#0f172a; color:white;">
+                <button class="btn-add-file" onclick="saveVideoLink(${i})" style="padding:3px 12px; background:#22c55e; color:white; border:none; border-radius:4px; cursor:pointer; font-size:0.6rem;">💾 Simpan</button>
+                <button class="btn-remove-file" onclick="removeVideoLink(${i})">✕</button>
+            </div>
+        `;
+    });
+    c.innerHTML = html;
+}
+
+function saveVideoLink(index) {
+    const input = document.getElementById(`video-link-input-${index}`);
+    if (!input) return;
+
+    const link = input.value.trim();
+    if (!link) {
+        showToast('⚠️ Masukkan link video terlebih dahulu!', true);
+        return;
     }
 
-    function addPosterRow() { posterImages.push('');
-        renderPosterUploadRows();
-        renderPosterSlide(); }
+    // ✅ AMBIL HANYA VIDEO DARI INPUT (TANPA DEFAULT)
+    const existingLinks = videoData.filter(v => !DEFAULT_VIDEOS.includes(v));
+    if (index < existingLinks.length) {
+        existingLinks[index] = link;
+    } else {
+        existingLinks.push(link);
+    }
 
-    function removePosterImage(i) {
-        posterImages.splice(i, 1);
-        if (currentPosterSlide >= posterImages.length) currentPosterSlide = Math.max(0, posterImages.length - 1);
-        renderPosterUploadRows();
+    // ✅ SIMPAN HANYA VIDEO DARI INPUT
+    videoData = [...existingLinks];
+    
+    showToast('✅ Link video berhasil disimpan!');
+    renderVideoLinkRows();
+    // Render ulang video dengan default untuk tampilan
+    const currentVideoData = [...existingLinks, ...DEFAULT_VIDEOS];
+    const oldVideoData = videoData;
+    videoData = currentVideoData;
+    renderVideoSlide();
+    videoData = oldVideoData;
+    // Tapi videoData harus tetap berisi default untuk tampilan
+    videoData = currentVideoData;
+}
+
+function addVideoLink() {
+    const existingLinks = videoData.filter(v => !DEFAULT_VIDEOS.includes(v));
+    existingLinks.push('');
+    videoData = [...existingLinks, ...DEFAULT_VIDEOS];
+    renderVideoLinkRows();
+    renderVideoSlide();
+}
+
+function removeVideoLink(i) {
+    const existingLinks = videoData.filter(v => !DEFAULT_VIDEOS.includes(v));
+    existingLinks.splice(i, 1);
+    videoData = [...existingLinks, ...DEFAULT_VIDEOS];
+    if (currentVideoSlide >= videoData.length) currentVideoSlide = Math.max(0, videoData.length - 1);
+    renderVideoLinkRows();
+    renderVideoSlide();
+}
+
+// ============================================================
+// POSTER UPLOAD ROWS
+// ============================================================
+function renderPosterUploadRows() {
+    const c = document.getElementById('posterUploadContainer');
+    if (!posterImages.length) {
+        c.innerHTML = `<div style="color:#64748b;font-size:0.6rem;text-align:center;padding:8px 0;">Belum ada gambar. Klik "Tambah Gambar" untuk menambahkan.</div>`;
+        return;
+    }
+    c.innerHTML = posterImages.map((img, i) => `
+        <div class="file-upload-row" id="poster-row-${i}">
+            <span class="file-label">#${i+1}</span>
+            <input type="file" accept="image/*" onchange="handlePosterFileChange(${i}, this)">
+            <img id="poster-preview-${i}" class="preview-small" src="${img || ''}" style="${img ? 'display:block;' : 'display:none;'}">
+            <button class="btn-remove-file" onclick="removePosterImage(${i})">✕</button>
+        </div>`).join('');
+}
+
+function addPosterRow() { posterImages.push('');
+    renderPosterUploadRows();
+    renderPosterSlide(); }
+
+function removePosterImage(i) {
+    posterImages.splice(i, 1);
+    if (currentPosterSlide >= posterImages.length) currentPosterSlide = Math.max(0, posterImages.length - 1);
+    renderPosterUploadRows();
+    renderPosterSlide();
+}
+
+function handlePosterFileChange(index, input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        posterImages[index] = e.target.result;
+        const p = document.getElementById(`poster-preview-${index}`);
+        if (p) { p.src = e.target.result;
+            p.style.display = 'block'; }
         renderPosterSlide();
-    }
+    };
+    reader.readAsDataURL(file);
+}
 
-    function handlePosterFileChange(index, input) {
-        const file = input.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = e => {
-            posterImages[index] = e.target.result;
-            const p = document.getElementById(`poster-preview-${index}`);
-            if (p) { p.src = e.target.result;
-                p.style.display = 'block'; }
-            renderPosterSlide();
-        };
-        reader.readAsDataURL(file);
-    }
+// ============================================================
+// ANNOUNCEMENT
+// ============================================================
+function renderAnnouncement() {
+    const timeEl = document.getElementById('announcementTime');
+    const now = new Date();
+    timeEl.textContent = `🕐 Update: ${now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })} ${now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`;
 
-    // ============================================================
-    // ANNOUNCEMENT
-    // ============================================================
-    function renderAnnouncement() {
-        const timeEl = document.getElementById('announcementTime');
-        const now = new Date();
-        timeEl.textContent = `🕐 Update: ${now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })} ${now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`;
+    let body = announcementData.body || '';
+    body = body.replace(/\n/g, '<br>');
+    body = body.replace(/⚠️/g, '<span class="hl-red">⚠️</span>');
+    body = body.replace(/🌟/g, '<span class="hl">🌟</span>');
+    body = body.replace(/FRAUD/g, '<span class="hl-red">FRAUD</span>');
+    body = body.replace(/integritas/gi, '<span class="hl">integritas</span>');
+    body = body.replace(/jujur/gi, '<span class="hl-green">jujur</span>');
 
-        let body = announcementData.body || '';
-        body = body.replace(/\n/g, '<br>');
-        body = body.replace(/⚠️/g, '<span class="hl-red">⚠️</span>');
-        body = body.replace(/🌟/g, '<span class="hl">🌟</span>');
-        body = body.replace(/FRAUD/g, '<span class="hl-red">FRAUD</span>');
-        body = body.replace(/integritas/gi, '<span class="hl">integritas</span>');
-        body = body.replace(/jujur/gi, '<span class="hl-green">jujur</span>');
+    document.getElementById('announcementContent').innerHTML = `
+        <div class="ann-title">${announcementData.title || 'Pengumuman'}</div>
+        <div class="ann-sub">${announcementData.subtitle || ''}</div>
+        <div class="ann-text">${body}</div>`;
+}
 
-        document.getElementById('announcementContent').innerHTML = `
-            <div class="ann-title">${announcementData.title || 'Pengumuman'}</div>
-            <div class="ann-sub">${announcementData.subtitle || ''}</div>
-            <div class="ann-text">${body}</div>`;
-    }
+// ============================================================
+// SCHEDULE
+// ============================================================
+function renderSchedule() {
+    const today = new Date();
+    document.getElementById('scheduleDate').textContent = today.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    document.getElementById('scheduleList').innerHTML = scheduleData.map(item => {
+        const [y, m, d] = item.date.split('-');
+        return `<div class="sched-item">
+            <span class="date-lbl">📅 ${d}/${m}/${y}</span>
+            <span class="activity">${item.activity}</span>
+            <span class="status-pill ${STATUS_CLASSES[item.status] || 'upcoming'}">${STATUS_LABELS[item.status] || '○ Akan Datang'}</span>
+        </div>`;
+    }).join('');
+}
 
-    // ============================================================
-    // SCHEDULE
-    // ============================================================
-    function renderSchedule() {
-        const today = new Date();
-        document.getElementById('scheduleDate').textContent = today.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-        document.getElementById('scheduleList').innerHTML = scheduleData.map(item => {
-            const [y, m, d] = item.date.split('-');
-            return `<div class="sched-item">
-                <span class="date-lbl">📅 ${d}/${m}/${y}</span>
-                <span class="activity">${item.activity}</span>
-                <span class="status-pill ${STATUS_CLASSES[item.status] || 'upcoming'}">${STATUS_LABELS[item.status] || '○ Akan Datang'}</span>
-            </div>`;
-        }).join('');
-    }
-
-    // ============================================================
-    // EDIT PANEL
-    // ============================================================
-    function toggleEditPanel() {
-        const panel = document.getElementById('editPanel');
-        panel.classList.toggle('active');
-        if (panel.classList.contains('active')) {
-            syncPanelFromDashboard();
-            ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(calculateDiff);
-            renderPosterUploadRows();
-            renderVideoLinkRows();
-        }
-    }
-
-    function syncPanelFromDashboard() {
-        if (chartInstance) {
-            const d = chartInstance.data.datasets[0].data;
-            document.getElementById('edit-chart-mixing').value = d[0] || 0;
-            document.getElementById('edit-chart-packing').value = d[1] || 0;
-            document.getElementById('edit-chart-office').value = d[2] || 0;
-        }
-        [1, 2, 3].forEach(n => {
-            const s = scheduleData[n - 1] || {};
-            document.getElementById(`edit-schedule-date${n}`).value = s.date || '';
-            document.getElementById(`edit-schedule-activity${n}`).value = s.activity || '';
-            document.getElementById(`edit-schedule-status${n}`).value = s.status || 'upcoming';
-        });
-        document.getElementById('edit-announce-title').value = announcementData.title || '';
-        document.getElementById('edit-announce-subtitle').value = announcementData.subtitle || '';
-        document.getElementById('edit-announce-body').value = announcementData.body || '';
-    }
-
-    // ============================================================
-    // SAVE DATA — PASTIKAN VIDEO TERSIMPAN
-    // ============================================================
-    function saveData() {
-        console.log('💾 Menyimpan data ke Firebase...');
-
-        // 🔥 KUMPULKAN VIDEO DARI INPUT
-        const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
-        const newVideoData = [];
-        videoInputs.forEach(input => {
-            if (input.value.trim()) {
-                newVideoData.push(input.value.trim());
-            }
-        });
-
-        // 🔥 GABUNGKAN DENGAN DEFAULT
-        const validLinks = newVideoData.filter(link => link && link.trim() !== '');
-        videoData = [...validLinks, ...DEFAULT_VIDEOS];
-        console.log('📹 Video yang disimpan:', videoData);
-
+// ============================================================
+// EDIT PANEL
+// ============================================================
+function toggleEditPanel() {
+    const panel = document.getElementById('editPanel');
+    panel.classList.toggle('active');
+    if (panel.classList.contains('active')) {
+        syncPanelFromDashboard();
         ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(calculateDiff);
+        renderPosterUploadRows();
+        renderVideoLinkRows();
+    }
+}
 
-        if (chartInstance) {
-            chartInstance.data.datasets[0].data = [
-                parseFloat(document.getElementById('edit-chart-mixing').value) || 0,
-                parseFloat(document.getElementById('edit-chart-packing').value) || 0,
-                parseFloat(document.getElementById('edit-chart-office').value) || 0
-            ];
-            chartInstance.update();
+function syncPanelFromDashboard() {
+    if (chartInstance) {
+        const d = chartInstance.data.datasets[0].data;
+        document.getElementById('edit-chart-mixing').value = d[0] || 0;
+        document.getElementById('edit-chart-packing').value = d[1] || 0;
+        document.getElementById('edit-chart-office').value = d[2] || 0;
+    }
+    [1, 2, 3].forEach(n => {
+        const s = scheduleData[n - 1] || {};
+        document.getElementById(`edit-schedule-date${n}`).value = s.date || '';
+        document.getElementById(`edit-schedule-activity${n}`).value = s.activity || '';
+        document.getElementById(`edit-schedule-status${n}`).value = s.status || 'upcoming';
+    });
+    document.getElementById('edit-announce-title').value = announcementData.title || '';
+    document.getElementById('edit-announce-subtitle').value = announcementData.subtitle || '';
+    document.getElementById('edit-announce-body').value = announcementData.body || '';
+}
+
+// ============================================================
+// SAVE DATA
+// ============================================================
+function saveData() {
+    console.log('💾 Menyimpan data ke Supabase...');
+
+    // Kumpulkan video dari input (hanya yang dari user)
+    const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
+    const newVideoData = [];
+    videoInputs.forEach(input => {
+        if (input.value.trim()) {
+            newVideoData.push(input.value.trim());
         }
+    });
 
-        announcementData.title = document.getElementById('edit-announce-title').value || 'Pengumuman';
-        announcementData.subtitle = document.getElementById('edit-announce-subtitle').value || '';
-        announcementData.body = document.getElementById('edit-announce-body').value || '';
-        renderAnnouncement();
+    // Data yang akan disimpan ke database (TANPA DEFAULT)
+    const savedVideoData = [...newVideoData];
+    console.log('📹 Video yang akan disimpan ke database:', savedVideoData);
 
-        scheduleData = [1, 2, 3].map(n => ({
-            date: document.getElementById(`edit-schedule-date${n}`).value || '',
-            activity: document.getElementById(`edit-schedule-activity${n}`).value || '',
-            status: document.getElementById(`edit-schedule-status${n}`).value
-        }));
-        renderSchedule();
+    // Untuk tampilan, tetap tambahkan default
+    videoData = [...savedVideoData, ...DEFAULT_VIDEOS];
 
-        renderPosterSlide();
-        renderVideoSlide();
-        renderRunningCards();
+    ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(calculateDiff);
 
-        const dashboardData = collectDashboardState();
+    if (chartInstance) {
+        chartInstance.data.datasets[0].data = [
+            parseFloat(document.getElementById('edit-chart-mixing').value) || 0,
+            parseFloat(document.getElementById('edit-chart-packing').value) || 0,
+            parseFloat(document.getElementById('edit-chart-office').value) || 0
+        ];
+        chartInstance.update();
+    }
 
-        updateSyncStatus('syncing', 'Menyimpan...');
+    announcementData.title = document.getElementById('edit-announce-title').value || 'Pengumuman';
+    announcementData.subtitle = document.getElementById('edit-announce-subtitle').value || '';
+    announcementData.body = document.getElementById('edit-announce-body').value || '';
+    renderAnnouncement();
 
-        // 🔒 SIMPAN KE FIREBASE DENGAN TRANSACTION
-        database.ref('dashboardData').transaction((current) => {
-            const lastVersion = (current && current._version) || 0;
-            return {
-                ...dashboardData,
-                _version: lastVersion + 1,
-                _timestamp: firebase.database.ServerValue.TIMESTAMP,
-                _lastUpdated: new Date().toISOString()
-            };
-        }).then((result) => {
-            if (!result.committed || !result.snapshot.exists()) {
-                throw new Error('Transaction tidak ter-commit');
-            }
-            const savedData = result.snapshot.val();
-            const newVersion = savedData._version;
-            currentDataVersion = newVersion;
+    scheduleData = [1, 2, 3].map(n => ({
+        date: document.getElementById(`edit-schedule-date${n}`).value || '',
+        activity: document.getElementById(`edit-schedule-activity${n}`).value || '',
+        status: document.getElementById(`edit-schedule-status${n}`).value
+    }));
+    renderSchedule();
 
-            console.log('✅ Data tersimpan! Version:', newVersion);
-            console.log('📹 Video tersimpan:', savedData.videoData);
-            showToast('✅ Data tersimpan di cloud! (v' + newVersion + ')');
-            updateSyncStatus('synced', 'v' + newVersion + ' tersimpan');
+    renderPosterSlide();
+    renderVideoSlide();
+    renderRunningCards();
 
+    const dashboardData = collectDashboardState();
+    // Pastikan videoData di dashboardData hanya dari input (tanpa default)
+    dashboardData.videoData = savedVideoData;
+
+    updateSyncStatus('syncing', 'Menyimpan...');
+
+    saveToSupabase(dashboardData).then(success => {
+        if (success) {
             document.querySelectorAll('.poster-wrapper,.announcement-wrapper,#video-card,#schedule-card').forEach(el => {
                 el.classList.remove('data-updated');
                 requestAnimationFrame(() => {
@@ -1781,314 +2033,318 @@
                     setTimeout(() => el.classList.remove('data-updated'), 700);
                 });
             });
-
             setTimeout(toggleEditPanel, 400);
-        }).catch(err => {
-            console.error('❌ Error:', err);
-            showToast('❌ Gagal simpan!', true);
-            updateSyncStatus('error', 'Gagal simpan');
-        });
-    }
+        }
+    });
+}
 
-    // ============================================================
-    // CHART
-    // ============================================================
-    function initChart() {
-        const canvas = document.getElementById('chart5R');
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        if (chartInstance) { chartInstance.destroy();
-            chartInstance = null; }
+// ============================================================
+// CHART
+// ============================================================
+function initChart() {
+    const canvas = document.getElementById('chart5R');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (chartInstance) { chartInstance.destroy();
+        chartInstance = null; }
 
-        const isLarge = window.innerWidth >= 1920;
+    const isLarge = window.innerWidth >= 1920;
 
-        chartInstance = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: ['Area Mixing', 'Area Packing', 'Office'],
-                datasets: [{
-                    label: 'Skor 5R',
-                    data: [
-                        parseFloat(document.getElementById('edit-chart-mixing').value) || 92.5,
-                        parseFloat(document.getElementById('edit-chart-packing').value) || 97.1,
-                        parseFloat(document.getElementById('edit-chart-office').value) || 94.8
-                    ],
-                    backgroundColor: ['rgba(52,211,153,0.85)', 'rgba(96,165,250,0.85)', 'rgba(251,191,36,0.85)'],
-                    borderColor: ['rgba(52,211,153,1)', 'rgba(96,165,250,1)', 'rgba(251,191,36,1)'],
-                    borderWidth: isLarge ? 3 : 2,
-                    borderRadius: isLarge ? 10 : 6,
-                    barPercentage: isLarge ? 0.65 : 0.5,
-                    categoryPercentage: isLarge ? 0.75 : 0.6
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                layout: { padding: { top: isLarge ? 28 : 14, right: 8, left: 8, bottom: 2 } },
-                plugins: {
-                    legend: { display: false },
-                    datalabels: {
-                        display: true,
-                        color: '#ffffff',
-                        anchor: 'end',
-                        align: 'top',
-                        offset: isLarge ? 5 : 1,
-                        clip: false,
-                        clamp: true,
-                        formatter: v => v.toFixed(1) + '%',
-                        font: { size: isLarge ? 18 : 10, weight: '900' }
-                    }
-                },
-                scales: {
-                    y: {
-                        min: 75,
-                        max: 105,
-                        grid: { color: 'rgba(255,255,255,0.06)' },
-                        ticks: {
-                            color: '#64748b',
-                            stepSize: isLarge ? 5 : 5,
-                            font: { size: isLarge ? 14 : 9, weight: 'bold' }
-                        }
-                    },
-                    x: {
-                        grid: { display: false },
-                        ticks: {
-                            color: '#94a3b8',
-                            font: { size: isLarge ? 16 : 10, weight: 'bold' }
-                        }
-                    }
+    chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['Area Mixing', 'Area Packing', 'Office'],
+            datasets: [{
+                label: 'Skor 5R',
+                data: [
+                    parseFloat(document.getElementById('edit-chart-mixing').value) || 92.5,
+                    parseFloat(document.getElementById('edit-chart-packing').value) || 97.1,
+                    parseFloat(document.getElementById('edit-chart-office').value) || 94.8
+                ],
+                backgroundColor: ['rgba(52,211,153,0.85)', 'rgba(96,165,250,0.85)', 'rgba(251,191,36,0.85)'],
+                borderColor: ['rgba(52,211,153,1)', 'rgba(96,165,250,1)', 'rgba(251,191,36,1)'],
+                borderWidth: isLarge ? 3 : 2,
+                borderRadius: isLarge ? 10 : 6,
+                barPercentage: isLarge ? 0.65 : 0.5,
+                categoryPercentage: isLarge ? 0.75 : 0.6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { top: isLarge ? 28 : 14, right: 8, left: 8, bottom: 2 } },
+            plugins: {
+                legend: { display: false },
+                datalabels: {
+                    display: true,
+                    color: '#ffffff',
+                    anchor: 'end',
+                    align: 'top',
+                    offset: isLarge ? 5 : 1,
+                    clip: false,
+                    clamp: true,
+                    formatter: v => v.toFixed(1) + '%',
+                    font: { size: isLarge ? 18 : 10, weight: '900' }
                 }
             },
-            plugins: [ChartDataLabels]
-        });
-    }
+            scales: {
+                y: {
+                    min: 75,
+                    max: 105,
+                    grid: { color: 'rgba(255,255,255,0.06)' },
+                    ticks: {
+                        color: '#64748b',
+                        stepSize: isLarge ? 5 : 5,
+                        font: { size: isLarge ? 14 : 9, weight: 'bold' }
+                    }
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: {
+                        color: '#94a3b8',
+                        font: { size: isLarge ? 16 : 10, weight: 'bold' }
+                    }
+                }
+            }
+        },
+        plugins: [ChartDataLabels]
+    });
+}
 
-    // ============================================================
-    // TOGGLE VIDEO AUTO SLIDE
-    // ============================================================
-    function toggleVideoAutoSlide() {
-        if (videoTimeout) {
-            stopVideoAutoSlide();
-            showToast('⏸️ Auto-slide video dijeda');
-            return false;
-        } else {
-            startVideoAutoSlide();
-            showToast('▶️ Auto-slide video dilanjutkan');
-            return true;
-        }
-    }
-
-    // ============================================================
-    // PAUSE VIDEO
-    // ============================================================
-    function pauseVideo() {
-        const videos = document.querySelectorAll('#videoSlides video');
-        videos.forEach(video => video.pause());
+// ============================================================
+// TOGGLE VIDEO AUTO SLIDE
+// ============================================================
+function toggleVideoAutoSlide() {
+    if (videoTimeout) {
         stopVideoAutoSlide();
-        showToast('⏸️ Video dijeda');
+        showToast('⏸️ Auto-slide video dijeda');
+        return false;
+    } else {
+        startVideoAutoSlide();
+        showToast('▶️ Auto-slide video dilanjutkan');
+        return true;
     }
+}
 
-    // ============================================================
-    // RESUME VIDEO
-    // ============================================================
-    function resumeVideo() {
-        const videos = document.querySelectorAll('#videoSlides video');
-        videos.forEach((video, index) => {
-            if (index === currentVideoSlide) {
-                video.play().catch(e => console.log('Play error:', e));
-            }
-        });
-        if (videoData.length > 1) startVideoAutoSlide();
-        showToast('▶️ Video dilanjutkan');
-    }
+// ============================================================
+// PAUSE / RESUME VIDEO
+// ============================================================
+function pauseVideo() {
+    const videos = document.querySelectorAll('#videoSlides video');
+    videos.forEach(video => video.pause());
+    stopVideoAutoSlide();
+    showToast('⏸️ Video dijeda');
+}
 
-    // ============================================================
-    // NEXT VIDEO
-    // ============================================================
-    function nextVideo() {
-        if (videoData.length <= 1) {
-            showToast('⚠️ Hanya ada 1 video', true);
-            return;
-        }
-        const nextSlide = (currentVideoSlide + 1) % videoData.length;
-        goToVideoSlide(nextSlide);
-        showToast('▶️ Video ' + (nextSlide + 1));
-    }
-
-    // ============================================================
-    // PREVIOUS VIDEO
-    // ============================================================
-    function prevVideo() {
-        if (videoData.length <= 1) {
-            showToast('⚠️ Hanya ada 1 video', true);
-            return;
-        }
-        const prevSlide = (currentVideoSlide - 1 + videoData.length) % videoData.length;
-        goToVideoSlide(prevSlide);
-        showToast('◀️ Video ' + (prevSlide + 1));
-    }
-
-    // ============================================================
-    // RESTART VIDEO
-    // ============================================================
-    function restartVideo() {
-        const video = document.querySelector(`#video-player-${currentVideoSlide}`);
-        if (video) {
-            video.currentTime = 0;
+function resumeVideo() {
+    const videos = document.querySelectorAll('#videoSlides video');
+    videos.forEach((video, index) => {
+        if (index === currentVideoSlide) {
             video.play().catch(e => console.log('Play error:', e));
-            showToast('🔄 Video di-restart');
         }
+    });
+    if (videoData.length > 1) startVideoAutoSlide();
+    showToast('▶️ Video dilanjutkan');
+}
+
+function nextVideo() {
+    if (videoData.length <= 1) {
+        showToast('⚠️ Hanya ada 1 video', true);
+        return;
+    }
+    const nextSlide = (currentVideoSlide + 1) % videoData.length;
+    goToVideoSlide(nextSlide);
+    showToast('▶️ Video ' + (nextSlide + 1));
+}
+
+function prevVideo() {
+    if (videoData.length <= 1) {
+        showToast('⚠️ Hanya ada 1 video', true);
+        return;
+    }
+    const prevSlide = (currentVideoSlide - 1 + videoData.length) % videoData.length;
+    goToVideoSlide(prevSlide);
+    showToast('◀️ Video ' + (prevSlide + 1));
+}
+
+function restartVideo() {
+    const video = document.querySelector(`#video-player-${currentVideoSlide}`);
+    if (video) {
+        video.currentTime = 0;
+        video.play().catch(e => console.log('Play error:', e));
+        showToast('🔄 Video di-restart');
+    }
+}
+
+// ============================================================
+// INIT - DENGAN FIREBASE-LIKE STABILITY
+// ============================================================
+window.addEventListener('load', async () => {
+    console.log('🚀 Dashboard - Mode: Firebase-like Realtime');
+    console.log('📱 Device:', navigator.userAgent);
+    console.log('🔄 Mode: Hybrid (Realtime + Polling 2s + Auto-Reconnect)');
+
+    // Render awal
+    setDefaultData();
+    renderVideoSlide();
+    renderPosterSlide();
+    renderAnnouncement();
+    renderSchedule();
+    renderRunningCards();
+    initChart();
+
+    updateClock();
+    updateDate();
+    setInterval(updateClock, 1000);
+    setInterval(updateDate, 60000);
+
+    // Status awal
+    updateConnectionStatus('connecting');
+
+    // Load data dari Supabase
+    try {
+        const dataLoaded = await loadFromSupabase();
+        if (dataLoaded) {
+            console.log('✅ Data loaded! Version:', currentDataVersion);
+            updateConnectionStatus('connected');
+        } else {
+            console.log('⚠️ Gagal memuat data, pakai default');
+        }
+    } catch (error) {
+        console.error('❌ Error load data:', error);
+        showToast('⚠️ Gagal load data', true);
     }
 
-    // ============================================================
-    // INIT
-    // ============================================================
-    window.addEventListener('load', async () => {
-        console.log('🚀 Dashboard Loading...');
-        console.log('🔄 Akan memuat DATA TERAKHIR dari Firebase...');
-        console.log('🔒 Anti-override aktif (transaction + retry)');
+    // 🔥 SETUP REALTIME (stabil seperti Firebase)
+    setupRealtimeListener();
 
-        setDefaultData();
-        renderVideoSlide();
-        renderPosterSlide();
-        renderAnnouncement();
-        renderSchedule();
-        renderRunningCards();
-        initChart();
+    // 🔥 START FAST POLLING (2 detik - seperti Firebase)
+    startFastPolling();
 
-        updateClock();
-        updateDate();
-        setInterval(updateClock, 1000);
-        setInterval(updateDate, 60000);
+    // 🔥 START HEARTBEAT (keep-alive)
+    startRealtimeHeartbeat();
 
-        setupConnectionStatus();
-
-        try {
-            const dataLoaded = await loadInitialData();
-            if (dataLoaded) {
-                console.log('✅ DATA TERAKHIR berhasil dimuat!');
-                console.log('📹 Video terakhir:', videoData);
-                console.log('📊 Version terakhir:', currentDataVersion);
-            } else {
-                console.log('⚠️ Gagal memuat data dari Firebase (koneksi?), tampilan pakai default lokal sementara.');
-            }
-        } catch (error) {
-            console.error('❌ Error saat load data:', error);
-            showToast('⚠️ Gagal load data dari Firebase, pakai default', true);
-        }
-
-        try {
-            setupRealtimeListener();
-        } catch (error) {
-            console.error('❌ Error pasang listener:', error);
-        }
-
-        setupVisibilityHandler();
-        setupPageVisibilityHandler();
-        setupNetworkHandler();
-        startVideoHealthCheck();
-
-        console.log('✅ Dashboard selesai dimuat! - Version:', currentDataVersion);
-
-        document.addEventListener('click', function firstClick() {
-            playCurrentVideo();
-            document.removeEventListener('click', firstClick);
-        }, { once: true });
-
-        document.addEventListener('touchstart', function firstTouch() {
-            playCurrentVideo();
-            document.removeEventListener('touchstart', firstTouch);
-        }, { once: true });
-
-        const posterContainer = document.getElementById('posterSlideContainer');
-        const videoContainer = document.getElementById('videoSlideContainer');
-        if (posterContainer) {
-            posterContainer.addEventListener('mouseenter', stopPosterAutoSlide);
-            posterContainer.addEventListener('mouseleave', startPosterAutoSlide);
-        }
-        if (videoContainer) {
-            videoContainer.addEventListener('mouseenter', stopVideoAutoSlide);
-            videoContainer.addEventListener('mouseleave', startVideoAutoSlide);
-        }
-
-        let resizeTimer;
-        window.addEventListener('resize', () => {
-            clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(initChart, 250);
-        });
-    });
-
-    // ============================================================
-    // KEYBOARD SHORTCUTS
-    // ============================================================
-    document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') {
-            const p = document.getElementById('editPanel');
-            if (p.classList.contains('active')) toggleEditPanel();
-        }
-        if (e.key === 'r' || e.key === 'R') {
-            if (!e.ctrlKey && !e.metaKey) {
-                e.preventDefault();
-                forceRefresh();
-            }
-        }
-        if (e.key === ' ' || e.key === 'Space') {
-            e.preventDefault();
-            toggleVideoAutoSlide();
-        }
-        if (e.key === 'ArrowRight') {
-            e.preventDefault();
-            nextVideo();
-        }
-        if (e.key === 'ArrowLeft') {
-            e.preventDefault();
-            prevVideo();
+    // 🔥 AUTO-SYNC ON VISIBILITY CHANGE
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) {
+            console.log('🔄 Tab aktif kembali, auto-sync...');
+            setTimeout(() => {
+                forceSync();
+                playCurrentVideo();
+            }, 500);
         }
     });
 
-    // ============================================================
-    // EXPOSE FUNGSI KE GLOBAL
-    // ============================================================
-    window.renderVideoSlide = renderVideoSlide;
-    window.goToVideoSlide = goToVideoSlide;
-    window.startVideoAutoSlide = startVideoAutoSlide;
-    window.stopVideoAutoSlide = stopVideoAutoSlide;
-    window.toggleVideoAutoSlide = toggleVideoAutoSlide;
-    window.renderPosterSlide = renderPosterSlide;
-    window.goToPosterSlide = goToPosterSlide;
-    window.toggleEditPanel = toggleEditPanel;
-    window.saveData = saveData;
-    window.calculateDiff = calculateDiff;
-    window.addPosterRow = addPosterRow;
-    window.removePosterImage = removePosterImage;
-    window.handlePosterFileChange = handlePosterFileChange;
-    window.addVideoLink = addVideoLink;
-    window.saveVideoLink = saveVideoLink;
-    window.removeVideoLink = removeVideoLink;
-    window.handleVideoMetadata = handleVideoMetadata;
-    window.handleVideoError = handleVideoError;
-    window.onVideoEnded = onVideoEnded;
-    window.onVideoPause = onVideoPause;
-    window.onVideoWaiting = onVideoWaiting;
-    window.playCurrentVideo = playCurrentVideo;
-    window.forceResetFirebase = forceResetFirebase;
-    window.checkFirebaseData = checkFirebaseData;
-    window.forceRefresh = forceRefresh;
-    window.collectDashboardState = collectDashboardState;
-    window.fixAutoSave = fixAutoSave;
-    window.pauseVideo = pauseVideo;
-    window.resumeVideo = resumeVideo;
-    window.nextVideo = nextVideo;
-    window.prevVideo = prevVideo;
-    window.restartVideo = restartVideo;
+    // Setup video handlers
+    setupVisibilityHandler();
+    setupPageVisibilityHandler();
+    setupNetworkHandler();
+    startVideoHealthCheck();
 
-    console.log('🔥 Dashboard siap!');
-    console.log('📌 Gunakan checkFirebaseData() untuk cek data di Firebase');
-    console.log('📌 Tekan R untuk refresh data');
-    console.log('📌 Tekan Spasi untuk play/pause auto-slide');
-    console.log('📌 Tekan Arrow Left/Right untuk ganti video');
-    console.log('📌 Data TERAKHIR dari Firebase akan selalu dimuat');
-    console.log('📌 Gunakan fixAutoSave() jika data kembali ke version 1');
+    // First interaction untuk video
+    document.addEventListener('click', function firstClick() {
+        playCurrentVideo();
+        document.removeEventListener('click', firstClick);
+    }, { once: true });
+
+    document.addEventListener('touchstart', function firstTouch() {
+        playCurrentVideo();
+        document.removeEventListener('touchstart', firstTouch);
+    }, { once: true });
+
+    // Hover untuk poster & video
+    const posterContainer = document.getElementById('posterSlideContainer');
+    const videoContainer = document.getElementById('videoSlideContainer');
+    if (posterContainer) {
+        posterContainer.addEventListener('mouseenter', stopPosterAutoSlide);
+        posterContainer.addEventListener('mouseleave', startPosterAutoSlide);
+    }
+    if (videoContainer) {
+        videoContainer.addEventListener('mouseenter', stopVideoAutoSlide);
+        videoContainer.addEventListener('mouseleave', startVideoAutoSlide);
+    }
+
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(initChart, 250);
+    });
+
+    console.log('✅ Dashboard siap!');
+    console.log('💡 Data auto-sync setiap 2 detik (polling) + realtime');
+    console.log('💡 Status koneksi terlihat di header (● Live/Offline)');
+    console.log('💡 Gunakan tombol "Sync" untuk manual sync');
+});
+
+// ============================================================
+// KEYBOARD SHORTCUTS
+// ============================================================
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        const p = document.getElementById('editPanel');
+        if (p.classList.contains('active')) toggleEditPanel();
+    }
+    if (e.key === 'r' || e.key === 'R') {
+        if (!e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            forceSync();
+        }
+    }
+    if (e.key === ' ' || e.key === 'Space') {
+        e.preventDefault();
+        toggleVideoAutoSlide();
+    }
+    if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        nextVideo();
+    }
+    if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        prevVideo();
+    }
+});
+
+// ============================================================
+// EXPOSE FUNGSI KE GLOBAL
+// ============================================================
+window.renderVideoSlide = renderVideoSlide;
+window.goToVideoSlide = goToVideoSlide;
+window.startVideoAutoSlide = startVideoAutoSlide;
+window.stopVideoAutoSlide = stopVideoAutoSlide;
+window.toggleVideoAutoSlide = toggleVideoAutoSlide;
+window.renderPosterSlide = renderPosterSlide;
+window.goToPosterSlide = goToPosterSlide;
+window.toggleEditPanel = toggleEditPanel;
+window.saveData = saveData;
+window.calculateDiff = calculateDiff;
+window.addPosterRow = addPosterRow;
+window.removePosterImage = removePosterImage;
+window.handlePosterFileChange = handlePosterFileChange;
+window.addVideoLink = addVideoLink;
+window.saveVideoLink = saveVideoLink;
+window.removeVideoLink = removeVideoLink;
+window.handleVideoMetadata = handleVideoMetadata;
+window.handleVideoError = handleVideoError;
+window.onVideoEnded = onVideoEnded;
+window.onVideoPause = onVideoPause;
+window.onVideoWaiting = onVideoWaiting;
+window.playCurrentVideo = playCurrentVideo;
+window.forceResetSupabase = forceResetSupabase;
+window.checkSupabaseData = checkSupabaseData;
+window.fixAutoSaveSupabase = fixAutoSaveSupabase;
+window.collectDashboardState = collectDashboardState;
+window.pauseVideo = pauseVideo;
+window.resumeVideo = resumeVideo;
+window.nextVideo = nextVideo;
+window.prevVideo = prevVideo;
+window.restartVideo = restartVideo;
+window.forceSync = forceSync;
+
+console.log('🔥 Dashboard siap!');
+console.log('📌 Gunakan checkSupabaseData() untuk cek data di Supabase');
+console.log('📌 Tekan R untuk force sync');
+console.log('📌 Tekan Spasi untuk play/pause auto-slide');
+console.log('📌 Tekan Arrow Left/Right untuk ganti video');
 </script>
 
 </body>
