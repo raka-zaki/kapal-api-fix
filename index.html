@@ -676,33 +676,65 @@ function isMobile() {
 // ============================================================
 // 🔥 POWER SAVING PROTECTION - DUMMY AUDIO TRACK
 // ============================================================
-function addDummyAudioTrack(video) {
+// ============================================================
+// 🔥 DUMMY AUDIO - TETAP BERJALAN SELAMANYA
+// ============================================================
+function startPermanentDummyAudio() {
     try {
-        if (video.audioTracks && video.audioTracks.length > 0) {
-            console.log('🔊 Video sudah memiliki audio track');
-            return dummyAudioContext;
+        // Jika sudah ada, skip
+        if (window._dummyAudioRunning) {
+            console.log('🔊 Dummy audio already running');
+            return;
         }
         
-        // 🔥 Buat audio context dengan volume 0
+        // Buat audio context
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // 🔥 BUAT OSCILLATOR YANG TIDAK PERNAH BERHENTI
         const oscillator = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
         
+        // Volume 0 - tidak terdengar
         gainNode.gain.value = 0;
+        
         oscillator.connect(gainNode);
         gainNode.connect(audioCtx.destination);
-        oscillator.start(0);
-        oscillator.stop(1);
         
-        dummyAudioContext = audioCtx;
-        console.log('🔊 Dummy audio track added! Video will NOT be paused by power saving');
+        // 🔥 JANGAN PERNAH STOP! (tidak ada oscillator.stop())
+        oscillator.start(0);
+        
+        // Simpan reference
+        window._dummyAudioContext = audioCtx;
+        window._dummyAudioRunning = true;
+        window._dummyOscillator = oscillator;
+        
+        console.log('🔊 Permanent dummy audio started! (will run forever)');
+        
+        // 🔥 Resume audio context jika suspend
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume().then(() => {
+                console.log('🔊 Audio context resumed');
+            });
+        }
+        
         return audioCtx;
     } catch (error) {
-        console.warn('⚠️ Gagal tambah dummy audio:', error);
+        console.warn('⚠️ Gagal start dummy audio:', error);
         return null;
     }
 }
 
+// Panggil di awal dan saat video play
+function ensureDummyAudioRunning() {
+    if (!window._dummyAudioRunning) {
+        startPermanentDummyAudio();
+    }
+    
+    // Resume jika suspended
+    if (window._dummyAudioContext && window._dummyAudioContext.state === 'suspended') {
+        window._dummyAudioContext.resume().catch(() => {});
+    }
+}
 // ============================================================
 // 🔥 POWER SAVING PROTECTION - PROTECT VIDEO
 // ============================================================
@@ -710,12 +742,10 @@ function protectVideoFromPowerSaving() {
     const video = document.querySelector(`#video-player-${currentVideoSlide}`);
     if (!video) return;
     
-    // 1. Tambahkan dummy audio
-    if (!dummyAudioContext) {
-        dummyAudioContext = addDummyAudioTrack(video);
-    }
+    // 🔥 PASTIKAN DUMMY AUDIO BERJALAN
+    ensureDummyAudioRunning();
     
-    // 2. Pastikan muted = false (biar dianggap punya audio)
+    // Setting video
     video.muted = false;
     video.volume = 0;
     video.playsInline = true;
@@ -723,9 +753,20 @@ function protectVideoFromPowerSaving() {
     video.setAttribute('x5-playsinline', 'true');
     video.preload = 'metadata';
     
+    // 🔥 TAMBAHKAN: Force video tidak pernah di-pause
+    video.addEventListener('pause', function onPause() {
+        if (this.paused && !this.ended && this.readyState > 0) {
+            console.log('⚡ Video paused (probably power saving), restarting...');
+            this.muted = false;
+            this.volume = 0;
+            setTimeout(() => {
+                this.play().catch(() => {});
+            }, 100);
+        }
+    }, { passive: true });
+    
     console.log('🛡️ Video protected from power saving!');
 }
-
 // ============================================================
 // 🔥 POWER SAVING PROTECTION - WAKE LOCK
 // ============================================================
@@ -781,7 +822,6 @@ function startKeepAlive() {
         }
     }, 3000);
 }
-
 function stopKeepAlive() {
     if (keepAliveInterval) {
         clearInterval(keepAliveInterval);
@@ -1260,22 +1300,17 @@ async function forceSync() {
 function playCurrentVideo() {
     const videos = document.querySelectorAll('#videoSlides video');
     
-    // 🔥 Request Wake Lock
+    // 🔥 PASTIKAN DUMMY AUDIO BERJALAN
+    ensureDummyAudioRunning();
     requestWakeLock();
-    
-    // 🔥 Protect video from power saving
     protectVideoFromPowerSaving();
-    
-    // 🔥 Start keep-alive
     startKeepAlive();
     
     videos.forEach((video, index) => {
         if (index === currentVideoSlide) {
-            video.muted = false;   // 🔥 JANGAN muted!
-            video.volume = 0;      // Volume 0
+            video.muted = false;
+            video.volume = 0;
             video.playsInline = true;
-            video.setAttribute('webkit-playsinline', 'true');
-            video.setAttribute('x5-playsinline', 'true');
             video.preload = 'metadata';
 
             if (videoData.length === 1) {
@@ -1289,46 +1324,39 @@ function playCurrentVideo() {
                 return;
             }
 
-            // 🔥 Play dengan retry untuk power saving
-            const playWithRetry = (attempt = 0) => {
-                if (attempt > 10) {
-                    console.log('❌ Gagal play setelah 10 percobaan');
-                    return;
-                }
-                
-                const promise = video.play();
-                if (promise !== undefined) {
-                    promise
-                        .then(() => {
-                            console.log(`✅ Video ${index + 1} play success`);
-                            isVideoPlaying = true;
-                        })
-                        .catch(error => {
-                            if (error.message && error.message.includes('paused to save power')) {
-                                console.log(`⚠️ Power saving pause, retry ${attempt + 1}...`);
-                                setTimeout(() => {
-                                    video.load();
-                                    setTimeout(() => playWithRetry(attempt + 1), 300);
-                                }, 500);
-                            } else if (error.name === 'AbortError' || error.message.includes('removed')) {
-                                console.log(`⏭️ Video ${index + 1} dibatalkan, ignore`);
-                            } else {
-                                console.warn(`⚠️ Video ${index + 1} error:`, error.message);
-                                setTimeout(() => playWithRetry(attempt + 1), 1000);
-                            }
-                        });
-                }
-            };
-            
-            playWithRetry(0);
+            // 🔥 FORCE PLAY - Tanpa retry, langsung play dengan force
+            const playPromise = video.play();
+            if (playPromise !== undefined) {
+                playPromise
+                    .then(() => {
+                        console.log(`✅ Video ${index + 1} play success`);
+                        isVideoPlaying = true;
+                    })
+                    .catch(error => {
+                        // 🔥 JIKA POWER SAVING, RELOAD DAN PLAY ULANG
+                        if (error.message && error.message.includes('paused to save power')) {
+                            console.log(`⚠️ Power saving detected, reloading video ${index+1}...`);
+                            // Reload video
+                            video.load();
+                            // Tambahkan dummy audio lagi
+                            ensureDummyAudioRunning();
+                            setTimeout(() => {
+                                video.muted = false;
+                                video.volume = 0;
+                                video.play()
+                                    .then(() => console.log(`✅ Video ${index+1} recovered`))
+                                    .catch(() => {});
+                            }, 500);
+                        } else {
+                            console.warn(`⚠️ Video ${index + 1} error:`, error.message);
+                        }
+                    });
+            }
         } else {
-            try {
-                video.pause();
-            } catch(e) {}
+            try { video.pause(); } catch(e) {}
         }
     });
 }
-
 // ============================================================
 // 🔥 RENDER VIDEO SLIDE - DENGAN STATE RESTORE
 // ============================================================
@@ -2534,6 +2562,20 @@ window.addEventListener('load', async () => {
     setupNetworkHandler();
     startVideoHealthCheck();
 
+     // 🔥 START PERMANENT DUMMY AUDIO DARI AWAL
+    startPermanentDummyAudio();
+    
+    // 🔥 CEK SETIAP 5 DETIK APAKAH AUDIO CONTEXT MASIH JALAN
+    setInterval(() => {
+        if (window._dummyAudioContext) {
+            if (window._dummyAudioContext.state === 'suspended') {
+                console.log('🔊 Audio context suspended, resuming...');
+                window._dummyAudioContext.resume().catch(() => {});
+            }
+        } else {
+            startPermanentDummyAudio();
+        }
+    }, 5000);
     // First interaction untuk video
     document.addEventListener('click', function firstClick() {
         playCurrentVideo();
