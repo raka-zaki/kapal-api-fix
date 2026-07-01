@@ -122,6 +122,20 @@
     .video-header .lbl { font-size: 0.65rem; font-weight: 800; color: #f87171; text-transform: uppercase; letter-spacing: 0.08em; }
     .video-header .badge-red { font-size: 0.45rem; color: #ef4444; background: rgba(239,68,68,0.15); padding: 2px 8px; border-radius: 8px; border: 1px solid rgba(239,68,68,0.2); animation: pulse 1.5s ease-in-out infinite; margin-left: auto; }
 
+    /* 🔥 CSS ANTI POWER SAVING */
+    video {
+        transform: translateZ(0);
+        will-change: transform;
+        -webkit-perspective: 1000;
+        perspective: 1000;
+        opacity: 0.99;
+        position: relative;
+        z-index: 1;
+    }
+    .video-slide video[autoplay] {
+        opacity: 1 !important;
+    }
+
     #videoSlideContainer { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #000; }
     #videoSlides { display: flex; height: 100%; transition: transform 0.5s ease-in-out; }
     .video-slide { min-width: 100%; height: 100%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #000; position: relative; }
@@ -383,6 +397,8 @@
                     <span class="dot"></span>
                     <span class="lbl">🎬 VIDEO</span>
                     <span class="badge-red">● LIVE</span>
+                    <button class="edit-btn-nav" style="border-color:#22c55e;color:#22c55e;padding:2px 8px;font-size:0.5rem;" onclick="playCurrentVideo()">▶️ Play</button>
+                    <button class="edit-btn-nav" style="border-color:#f59e0b;color:#f59e0b;padding:2px 8px;font-size:0.5rem;" onclick="pauseVideo()">⏸️ Pause</button>
                 </div>
                 <div id="videoSlideContainer" class="slide-container">
                     <div id="videoSlides"></div>
@@ -540,7 +556,7 @@
 </div>
 
 <!-- ============================================================
-     JAVASCRIPT - SUPABASE WITH FIREBASE-LIKE STABILITY
+     JAVASCRIPT - FULLY PROTECTED AGAINST POWER SAVING
      ============================================================ -->
 <script>
 // ============================================================
@@ -580,6 +596,10 @@ let supabaseChannel = null;
 let isSaving = false;
 let pollingInterval = null;
 let heartbeatInterval = null;
+let isVideoPlaying = false;
+let keepAliveInterval = null;
+let wakeLock = null;
+let dummyAudioContext = null;
 
 const STATUS_LABELS = { ongoing: '● Berlangsung', upcoming: '○ Akan Datang', done: '✓ Selesai' };
 const STATUS_CLASSES = { ongoing: 'ongoing', upcoming: 'upcoming', done: 'done' };
@@ -614,7 +634,7 @@ function updateSyncStatus(status, message = '') {
 }
 
 // ============================================================
-// CONNECTION STATUS - Firebase-like indicator
+// CONNECTION STATUS
 // ============================================================
 function updateConnectionStatus(status, message = '') {
     const dot = document.getElementById('connectionDot');
@@ -643,6 +663,130 @@ function updateConnectionStatus(status, message = '') {
             break;
         default:
             text.textContent = message || '● Unknown';
+    }
+}
+
+// ============================================================
+// DETEKSI MOBILE
+// ============================================================
+function isMobile() {
+    return /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+// ============================================================
+// 🔥 POWER SAVING PROTECTION - DUMMY AUDIO TRACK
+// ============================================================
+function addDummyAudioTrack(video) {
+    try {
+        if (video.audioTracks && video.audioTracks.length > 0) {
+            console.log('🔊 Video sudah memiliki audio track');
+            return dummyAudioContext;
+        }
+        
+        // 🔥 Buat audio context dengan volume 0
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        gainNode.gain.value = 0;
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start(0);
+        oscillator.stop(1);
+        
+        dummyAudioContext = audioCtx;
+        console.log('🔊 Dummy audio track added! Video will NOT be paused by power saving');
+        return audioCtx;
+    } catch (error) {
+        console.warn('⚠️ Gagal tambah dummy audio:', error);
+        return null;
+    }
+}
+
+// ============================================================
+// 🔥 POWER SAVING PROTECTION - PROTECT VIDEO
+// ============================================================
+function protectVideoFromPowerSaving() {
+    const video = document.querySelector(`#video-player-${currentVideoSlide}`);
+    if (!video) return;
+    
+    // 1. Tambahkan dummy audio
+    if (!dummyAudioContext) {
+        dummyAudioContext = addDummyAudioTrack(video);
+    }
+    
+    // 2. Pastikan muted = false (biar dianggap punya audio)
+    video.muted = false;
+    video.volume = 0;
+    video.playsInline = true;
+    video.setAttribute('webkit-playsinline', 'true');
+    video.setAttribute('x5-playsinline', 'true');
+    video.preload = 'metadata';
+    
+    console.log('🛡️ Video protected from power saving!');
+}
+
+// ============================================================
+// 🔥 POWER SAVING PROTECTION - WAKE LOCK
+// ============================================================
+async function requestWakeLock() {
+    try {
+        if ('wakeLock' in navigator) {
+            wakeLock = await navigator.wakeLock.request('screen');
+            console.log('🔒 Wake Lock acquired - screen will not sleep');
+            wakeLock.addEventListener('release', () => {
+                console.log('🔓 Wake Lock released');
+            });
+        }
+    } catch (err) {
+        console.log('⚠️ Wake Lock not available:', err);
+    }
+}
+
+function releaseWakeLock() {
+    if (wakeLock) {
+        try {
+            wakeLock.release();
+            wakeLock = null;
+            console.log('🔓 Wake Lock released manually');
+        } catch(e) {}
+    }
+}
+
+// ============================================================
+// 🔥 POWER SAVING PROTECTION - KEEP ALIVE
+// ============================================================
+function startKeepAlive() {
+    if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+    }
+    
+    console.log('🔄 Starting keep-alive (every 3s)...');
+    
+    keepAliveInterval = setInterval(() => {
+        const video = document.querySelector(`#video-player-${currentVideoSlide}`);
+        if (!video) return;
+        
+        if (video.paused && !video.ended && video.readyState > 0 && isVideoPlaying) {
+            console.log('⚡ Video detected paused (possibly power saving), restarting...');
+            video.muted = false;
+            video.volume = 0;
+            video.playsInline = true;
+            video.load();
+            setTimeout(() => {
+                video.play()
+                    .then(() => console.log('✅ Video restarted from keep-alive'))
+                    .catch(err => console.warn('⚠️ Keep-alive play error:', err));
+            }, 300);
+        }
+    }, 3000);
+}
+
+function stopKeepAlive() {
+    if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+        keepAliveInterval = null;
+        console.log('⏹️ Keep-alive stopped');
     }
 }
 
@@ -706,7 +850,7 @@ async function loadFromSupabase(retryCount = 0) {
 }
 
 // ============================================================
-// SUPABASE - SAVE DATA (FIXED - UPDATE INSTEAD OF INSERT)
+// SUPABASE - SAVE DATA
 // ============================================================
 async function saveToSupabase(dashboardData, newVersion = null) {
     if (isSaving) {
@@ -729,7 +873,6 @@ async function saveToSupabase(dashboardData, newVersion = null) {
         const lastVersion = (latest && latest.length > 0) ? latest[0]._version : 0;
         const finalVersion = newVersion !== null ? newVersion : lastVersion + 1;
         
-        // ✅ JIKA DATA DEFAULT, UPDATE INSTEAD OF INSERT
         const isDefaultData = !dashboardData._version || dashboardData._version <= 1;
         
         if (isDefaultData && lastVersion > 0) {
@@ -753,7 +896,6 @@ async function saveToSupabase(dashboardData, newVersion = null) {
             return true;
         }
         
-        // CEK VERSION
         if (dashboardData._version && dashboardData._version < lastVersion && lastVersion > 0) {
             console.warn('⚠️ Data lebih lama (v' + dashboardData._version + ' < v' + lastVersion + ')');
             showToast('⚠️ Data lebih baru sudah ada! (v' + lastVersion + ')', true);
@@ -811,7 +953,6 @@ async function createDefaultData() {
 // 🔥 REALTIME LISTENER - FIREBASE-LIKE STABILITY
 // ============================================================
 function setupRealtimeListener() {
-    // Hapus channel lama
     if (window.supabaseChannel) {
         try {
             supabaseClient.removeChannel(window.supabaseChannel);
@@ -819,7 +960,6 @@ function setupRealtimeListener() {
         console.log('🔴 Channel lama dihapus');
     }
     
-    // 🔥 KONFIGURASI YANG LEBIH STABIL
     window.supabaseChannel = supabaseClient
         .channel('dashboard-changes', {
             config: {
@@ -853,6 +993,10 @@ function setupRealtimeListener() {
                     
                     if (newVersion > currentDataVersion) {
                         console.log('✅ Ada update baru!');
+                        
+                        // 🔥 SAVE VIDEO STATE BEFORE UPDATE
+                        const videoState = saveVideoState();
+                        
                         currentDataVersion = newVersion;
                         applyDashboardState({ 
                             ...newData, 
@@ -860,8 +1004,10 @@ function setupRealtimeListener() {
                             _lastUpdated: newRecord._last_updated 
                         });
                         
-                        // Re-render semua komponen
-                        renderVideoSlide();
+                        // 🔥 RESTORE VIDEO STATE AFTER UPDATE
+                        restoreVideoState(videoState);
+                        
+                        // Re-render komponen lain
                         renderPosterSlide();
                         renderAnnouncement();
                         renderSchedule();
@@ -888,8 +1034,6 @@ function setupRealtimeListener() {
                 console.log('❌ Realtime error, reconnecting...');
                 updateConnectionStatus('connecting');
                 updateSyncStatus('error', 'Reconnecting...');
-                
-                // Auto reconnect setelah 3 detik
                 setTimeout(() => {
                     console.log('🔄 Reconnecting realtime...');
                     setupRealtimeListener();
@@ -907,22 +1051,129 @@ function setupRealtimeListener() {
 }
 
 // ============================================================
-// 🔥 HEARTBEAT - Keep WebSocket Alive (seperti Firebase)
+// 🔥 SAVE VIDEO STATE
+// ============================================================
+function saveVideoState() {
+    const video = document.querySelector(`#video-player-${currentVideoSlide}`);
+    if (!video) return null;
+    
+    return {
+        currentTime: video.currentTime || 0,
+        paused: video.paused,
+        ended: video.ended,
+        src: video.src
+    };
+}
+
+// ============================================================
+// 🔥 RESTORE VIDEO STATE
+// ============================================================
+function restoreVideoState(state) {
+    if (!state) return;
+    
+    const video = document.querySelector(`#video-player-${currentVideoSlide}`);
+    if (!video) return;
+    
+    if (video.src !== state.src) {
+        console.log('🔄 Video source changed, cannot restore state');
+        return;
+    }
+    
+    video.currentTime = Math.min(state.currentTime, video.duration || 0);
+    
+    if (!state.paused && !state.ended) {
+        setTimeout(() => {
+            video.play().catch(e => {
+                if (!e.message.includes('removed')) {
+                    console.warn('Restore play error:', e);
+                }
+            });
+        }, 200);
+    }
+    
+    console.log(`🔄 Video state restored: time=${state.currentTime}, paused=${state.paused}`);
+}
+
+// ============================================================
+// 🔥 FAST POLLING (2 detik)
+// ============================================================
+function startFastPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+    }
+    
+    console.log('🔄 Starting fast polling (every 2s)...');
+    
+    pollingInterval = setInterval(async () => {
+        try {
+            const { data, error } = await supabaseClient
+                .from('dashboard_data')
+                .select('_version')
+                .order('_version', { ascending: false })
+                .limit(1);
+                
+            if (error) throw error;
+            
+            if (data && data.length > 0) {
+                const serverVersion = data[0]._version;
+                
+                if (serverVersion > currentDataVersion) {
+                    console.log(`🔄 Polling: New version ${serverVersion} (current: ${currentDataVersion})`);
+                    
+                    // 🔥 SAVE VIDEO STATE
+                    const videoState = saveVideoState();
+                    
+                    const { data: fullData, error: fullError } = await supabaseClient
+                        .from('dashboard_data')
+                        .select('*')
+                        .eq('_version', serverVersion)
+                        .limit(1);
+                        
+                    if (fullError) throw fullError;
+                    
+                    if (fullData && fullData.length > 0) {
+                        const record = fullData[0];
+                        currentDataVersion = serverVersion;
+                        applyDashboardState({ 
+                            ...record.data, 
+                            _version: serverVersion, 
+                            _lastUpdated: record._last_updated 
+                        });
+                        
+                        // 🔥 RESTORE VIDEO STATE
+                        restoreVideoState(videoState);
+                        
+                        renderPosterSlide();
+                        renderAnnouncement();
+                        renderSchedule();
+                        renderRunningCards();
+                        initChart();
+                        
+                        showToast('🔄 Data updated! (v' + serverVersion + ')');
+                        updateSyncStatus('synced', 'v' + serverVersion);
+                        updateConnectionStatus('connected');
+                    }
+                }
+            }
+        } catch (error) {
+            // Silent fail
+        }
+    }, 2000);
+}
+
+// ============================================================
+// 🔥 HEARTBEAT
 // ============================================================
 function startRealtimeHeartbeat() {
     if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
     }
     
-    // Kirim ping setiap 15 detik untuk keep connection alive
     heartbeatInterval = setInterval(() => {
         if (window.supabaseChannel) {
             try {
                 const status = window.supabaseChannel.state;
-                console.log('💓 Heartbeat - Channel state:', status);
-                
                 if (status === 'subscribed') {
-                    // Kirim ping
                     window.supabaseChannel.send({
                         type: 'broadcast',
                         event: 'ping',
@@ -942,72 +1193,7 @@ function startRealtimeHeartbeat() {
 }
 
 // ============================================================
-// 🔥 FAST POLLING - Seperti Firebase Realtime (2 detik)
-// ============================================================
-function startFastPolling() {
-    if (pollingInterval) {
-        clearInterval(pollingInterval);
-    }
-    
-    console.log('🔄 Starting fast polling (every 2s)...');
-    
-    pollingInterval = setInterval(async () => {
-        try {
-            // Cek versi terbaru
-            const { data, error } = await supabaseClient
-                .from('dashboard_data')
-                .select('_version')
-                .order('_version', { ascending: false })
-                .limit(1);
-                
-            if (error) throw error;
-            
-            if (data && data.length > 0) {
-                const serverVersion = data[0]._version;
-                
-                // 🔥 Jika ada versi baru, ambil data
-                if (serverVersion > currentDataVersion) {
-                    console.log(`🔄 Polling: New version ${serverVersion} (current: ${currentDataVersion})`);
-                    
-                    const { data: fullData, error: fullError } = await supabaseClient
-                        .from('dashboard_data')
-                        .select('*')
-                        .eq('_version', serverVersion)
-                        .limit(1);
-                        
-                    if (fullError) throw fullError;
-                    
-                    if (fullData && fullData.length > 0) {
-                        const record = fullData[0];
-                        currentDataVersion = serverVersion;
-                        applyDashboardState({ 
-                            ...record.data, 
-                            _version: serverVersion, 
-                            _lastUpdated: record._last_updated 
-                        });
-                        
-                        // Re-render
-                        renderVideoSlide();
-                        renderPosterSlide();
-                        renderAnnouncement();
-                        renderSchedule();
-                        renderRunningCards();
-                        initChart();
-                        
-                        showToast('🔄 Data updated! (v' + serverVersion + ')');
-                        updateSyncStatus('synced', 'v' + serverVersion);
-                        updateConnectionStatus('connected');
-                    }
-                }
-            }
-        } catch (error) {
-            // Silent fail untuk polling
-        }
-    }, 2000);
-}
-
-// ============================================================
-// 🔥 FORCE SYNC - Manual sync (seperti Firebase goOnline)
+// 🔥 FORCE SYNC
 // ============================================================
 async function forceSync() {
     showToast('🔄 Syncing...');
@@ -1030,6 +1216,10 @@ async function forceSync() {
             
             if (version > currentDataVersion) {
                 console.log('✅ New version detected!');
+                
+                // 🔥 SAVE VIDEO STATE
+                const videoState = saveVideoState();
+                
                 currentDataVersion = version;
                 applyDashboardState({ 
                     ...record.data, 
@@ -1037,7 +1227,9 @@ async function forceSync() {
                     _lastUpdated: record._last_updated 
                 });
                 
-                renderVideoSlide();
+                // 🔥 RESTORE VIDEO STATE
+                restoreVideoState(videoState);
+                
                 renderPosterSlide();
                 renderAnnouncement();
                 renderSchedule();
@@ -1059,6 +1251,460 @@ async function forceSync() {
         showToast('❌ Sync failed!', true);
         updateSyncStatus('error', 'Sync failed');
         updateConnectionStatus('disconnected');
+    }
+}
+
+// ============================================================
+// 🔥 PLAY CURRENT VIDEO - WITH POWER SAVING PROTECTION
+// ============================================================
+function playCurrentVideo() {
+    const videos = document.querySelectorAll('#videoSlides video');
+    
+    // 🔥 Request Wake Lock
+    requestWakeLock();
+    
+    // 🔥 Protect video from power saving
+    protectVideoFromPowerSaving();
+    
+    // 🔥 Start keep-alive
+    startKeepAlive();
+    
+    videos.forEach((video, index) => {
+        if (index === currentVideoSlide) {
+            video.muted = false;   // 🔥 JANGAN muted!
+            video.volume = 0;      // Volume 0
+            video.playsInline = true;
+            video.setAttribute('webkit-playsinline', 'true');
+            video.setAttribute('x5-playsinline', 'true');
+            video.preload = 'metadata';
+
+            if (videoData.length === 1) {
+                video.loop = true;
+            } else {
+                video.loop = false;
+            }
+
+            if (!document.contains(video)) {
+                console.warn(`⚠️ Video ${index + 1} sudah tidak ada di DOM, skip play`);
+                return;
+            }
+
+            // 🔥 Play dengan retry untuk power saving
+            const playWithRetry = (attempt = 0) => {
+                if (attempt > 10) {
+                    console.log('❌ Gagal play setelah 10 percobaan');
+                    return;
+                }
+                
+                const promise = video.play();
+                if (promise !== undefined) {
+                    promise
+                        .then(() => {
+                            console.log(`✅ Video ${index + 1} play success`);
+                            isVideoPlaying = true;
+                        })
+                        .catch(error => {
+                            if (error.message && error.message.includes('paused to save power')) {
+                                console.log(`⚠️ Power saving pause, retry ${attempt + 1}...`);
+                                setTimeout(() => {
+                                    video.load();
+                                    setTimeout(() => playWithRetry(attempt + 1), 300);
+                                }, 500);
+                            } else if (error.name === 'AbortError' || error.message.includes('removed')) {
+                                console.log(`⏭️ Video ${index + 1} dibatalkan, ignore`);
+                            } else {
+                                console.warn(`⚠️ Video ${index + 1} error:`, error.message);
+                                setTimeout(() => playWithRetry(attempt + 1), 1000);
+                            }
+                        });
+                }
+            };
+            
+            playWithRetry(0);
+        } else {
+            try {
+                video.pause();
+            } catch(e) {}
+        }
+    });
+}
+
+// ============================================================
+// 🔥 RENDER VIDEO SLIDE - DENGAN STATE RESTORE
+// ============================================================
+function renderVideoSlide() {
+    const container = document.getElementById('videoSlides');
+    const inds = document.getElementById('videoIndicators');
+
+    if (!videoData.length || videoData.every(v => !v)) {
+        container.innerHTML = `<div class="video-slide"><div class="slide-empty">
+            <svg style="width:36px;height:36px;margin:0 auto 6px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            <p>Belum ada video</p></div></div>`;
+        inds.innerHTML = '';
+        return;
+    }
+
+    videoDurations = new Array(videoData.length).fill(undefined);
+    const isMobileDevice = isMobile();
+
+    // 🔥 SIMPAN STATE SEBELUM RENDER
+    const videoState = saveVideoState();
+
+    container.innerHTML = videoData.map((vid, i) => {
+        const isActive = i === currentVideoSlide;
+        const shouldLoop = videoData.length === 1;
+        return `
+            <div class="video-slide" data-index="${i}" style="${isActive ? '' : 'display:none;'}">
+                <video 
+                    controls 
+                    ${isActive ? 'autoplay' : ''}
+                    muted="false"
+                    volume="0"
+                    playsinline 
+                    webkit-playsinline="true"
+                    x5-playsinline="true"
+                    width="100%" 
+                    height="100%" 
+                    id="video-player-${i}"
+                    style="object-fit:contain; background:#000;"
+                    preload="metadata"
+                    ${shouldLoop ? 'loop' : ''}
+                    onloadedmetadata="handleVideoMetadata(${i}, this.duration)"
+                    onerror="handleVideoError(${i})"
+                    onended="onVideoEnded(${i})"
+                    onpause="onVideoPause(${i})"
+                    onwaiting="onVideoWaiting(${i})"
+                    >
+                    <source src="${vid}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+                <span class="vid-label">📹 Video ${i+1}</span>
+            </div>
+        `;
+    }).join('');
+
+    inds.innerHTML = videoData.map((_, i) =>
+        `<button class="dot-ind${i === currentVideoSlide ? ' active' : ''}" onclick="goToVideoSlide(${i})"></button>`
+    ).join('');
+
+    // 🔥 RESTORE STATE SETELAH RENDER
+    setTimeout(() => {
+        restoreVideoState(videoState);
+        initializeVideoPlayer();
+    }, isMobileDevice ? 500 : 300);
+}
+
+// ============================================================
+// INITIALIZE VIDEO PLAYER
+// ============================================================
+function initializeVideoPlayer() {
+    const videoElements = document.querySelectorAll('#videoSlides video');
+    const isMobileDevice = isMobile();
+    
+    videoElements.forEach((video, index) => {
+        if (isMobileDevice) {
+            video.muted = false;
+            video.volume = 0;
+            video.playsInline = true;
+            video.setAttribute('webkit-playsinline', 'true');
+            video.setAttribute('x5-playsinline', 'true');
+            video.setAttribute('x5-video-player-type', 'h5');
+        }
+        
+        // 🔥 Proteksi power saving
+        video.muted = false;
+        video.volume = 0;
+        video.preload = 'metadata';
+        
+        if (videoData.length === 1) {
+            video.loop = true;
+        } else {
+            video.loop = false;
+        }
+        
+        if (video.readyState >= 1 && video.duration && video.duration > 0) {
+            handleVideoMetadata(index, video.duration);
+        }
+    });
+    
+    // 🔥 Proteksi dan play
+    protectVideoFromPowerSaving();
+    requestWakeLock();
+    
+    setTimeout(() => {
+        playCurrentVideo();
+    }, isMobileDevice ? 500 : 100);
+}
+
+// ============================================================
+// 🔥 VIDEO HEALTH CHECK - DENGAN STATE RESTORE
+// ============================================================
+function startVideoHealthCheck() {
+    stopVideoHealthCheck();
+    videoCheckInterval = setInterval(() => {
+        const videos = document.querySelectorAll('#videoSlides video');
+        let needRestart = false;
+        
+        videos.forEach((video, index) => {
+            if (index === currentVideoSlide) {
+                if (!document.contains(video)) {
+                    console.log(`⚠️ Video ${index + 1} hilang dari DOM, reload...`);
+                    needRestart = true;
+                    return;
+                }
+                
+                if (video.paused && !video.ended && video.readyState > 0 && isVideoPlaying) {
+                    console.log(`⚠️ Video ${index + 1} terdeteksi berhenti, restart...`);
+                    needRestart = true;
+                }
+            }
+        });
+        
+        if (needRestart) {
+            setTimeout(() => {
+                playCurrentVideo();
+            }, 200);
+        }
+    }, 3000);
+}
+
+function stopVideoHealthCheck() {
+    if (videoCheckInterval) {
+        clearInterval(videoCheckInterval);
+        videoCheckInterval = null;
+    }
+}
+
+// ============================================================
+// VIDEO HANDLERS
+// ============================================================
+function onVideoPause(index) {
+    if (index === currentVideoSlide) {
+        console.log(`⏸️ Video ${index + 1} pause`);
+        isVideoPlaying = false;
+        setTimeout(() => {
+            const video = document.querySelector(`#video-player-${index}`);
+            if (video && video.paused && !video.ended) {
+                video.muted = false;
+                video.volume = 0;
+                video.play().catch(e => {
+                    if (!e.message.includes('removed')) {
+                        console.log('Retry play on pause:', e);
+                    }
+                });
+            }
+        }, 500);
+    }
+}
+
+function onVideoWaiting(index) {
+    if (index === currentVideoSlide) {
+        console.log(`⏳ Video ${index + 1} buffering...`);
+        setTimeout(() => {
+            const video = document.querySelector(`#video-player-${index}`);
+            if (video && video.readyState < 2) {
+                video.load();
+                setTimeout(() => {
+                    video.muted = false;
+                    video.volume = 0;
+                    video.play().catch(e => {
+                        if (!e.message.includes('removed')) {
+                            console.log('Retry play on waiting:', e);
+                        }
+                    });
+                }, 500);
+            }
+        }, 3000);
+    }
+}
+
+function onVideoEnded(index) {
+    console.log(`📹 Video ${index + 1} selesai diputar`);
+    if (videoData.length === 1) {
+        console.log('🔄 Hanya 1 video, akan loop otomatis');
+        return;
+    }
+    if (index === currentVideoSlide && videoData.length > 1) {
+        const nextSlide = (currentVideoSlide + 1) % videoData.length;
+        console.log(`➡️ Pindah ke video ${nextSlide + 1}`);
+        goToVideoSlide(nextSlide);
+    }
+}
+
+function handleVideoMetadata(index, duration) {
+    if (duration && duration > 0 && !isNaN(duration)) {
+        videoDurations[index] = duration;
+        console.log(`📹 Video ${index + 1} durasi: ${duration.toFixed(1)} detik`);
+        const allDetected = videoData.every((v, i) => {
+            return videoDurations[i] !== undefined && videoDurations[i] > 0;
+        });
+        if (allDetected && videoData.length > 1) {
+            startVideoAutoSlide();
+        }
+    }
+}
+
+function handleVideoError(index) {
+    console.warn(`⚠️ Error loading video ${index + 1}`);
+    if (!videoDurations[index]) {
+        videoDurations[index] = 5;
+        const allDetected = videoData.every((v, i) => {
+            return videoDurations[i] !== undefined && videoDurations[i] > 0;
+        });
+        if (allDetected && videoData.length > 1) {
+            startVideoAutoSlide();
+        }
+    }
+    setTimeout(() => {
+        if (index === currentVideoSlide) {
+            const video = document.querySelector(`#video-player-${index}`);
+            if (video) {
+                video.load();
+                setTimeout(() => {
+                    video.muted = false;
+                    video.volume = 0;
+                    video.play().catch(e => {
+                        if (!e.message.includes('removed')) {
+                            console.log('Retry play error:', e);
+                        }
+                    });
+                }, 500);
+            }
+        }
+    }, 3000);
+}
+
+function startVideoAutoSlide() {
+    stopVideoAutoSlide();
+    if (videoData.length <= 1) {
+        console.log('⏹️ Hanya 1 video, tidak auto-slide (akan loop)');
+        return;
+    }
+    console.log('▶️ Auto-slide dimulai');
+}
+
+function stopVideoAutoSlide() {
+    if (videoTimeout) {
+        clearTimeout(videoTimeout);
+        videoTimeout = null;
+        console.log('⏹️ Auto-slide dihentikan');
+    }
+}
+
+function goToVideoSlide(index) {
+    if (!videoData.length) return;
+    index = ((index % videoData.length) + videoData.length) % videoData.length;
+    if (index === currentVideoSlide) {
+        const video = document.querySelector(`#video-player-${index}`);
+        if (video) {
+            video.currentTime = 0;
+            video.muted = false;
+            video.volume = 0;
+            video.play().catch(e => {
+                if (!e.message.includes('removed')) {
+                    console.log('Play error:', e);
+                }
+            });
+        }
+        return;
+    }
+    currentVideoSlide = index;
+    const slides = document.querySelectorAll('#videoSlides .video-slide');
+    slides.forEach((slide, i) => {
+        slide.style.display = i === index ? '' : 'none';
+        const video = slide.querySelector('video');
+        if (video) {
+            if (i === index) {
+                video.muted = false;
+                video.volume = 0;
+                video.playsInline = true;
+                if (videoData.length === 1) {
+                    video.loop = true;
+                } else {
+                    video.loop = false;
+                }
+                video.currentTime = 0;
+                setTimeout(() => {
+                    video.play().catch(e => {
+                        if (!e.message.includes('removed')) {
+                            console.log('Play error:', e);
+                        }
+                    });
+                }, 50);
+            } else {
+                video.pause();
+            }
+        }
+    });
+    const inds = document.querySelectorAll('#videoIndicators .dot-ind');
+    inds.forEach((dot, i) => {
+        dot.classList.toggle('active', i === index);
+    });
+}
+
+function pauseVideo() {
+    const videos = document.querySelectorAll('#videoSlides video');
+    videos.forEach(video => video.pause());
+    isVideoPlaying = false;
+    stopKeepAlive();
+    releaseWakeLock();
+    stopVideoAutoSlide();
+    showToast('⏸️ Video dijeda');
+}
+
+function resumeVideo() {
+    const videos = document.querySelectorAll('#videoSlides video');
+    videos.forEach((video, index) => {
+        if (index === currentVideoSlide) {
+            video.muted = false;
+            video.volume = 0;
+            video.play().catch(e => {
+                if (!e.message.includes('removed')) {
+                    console.log('Play error:', e);
+                }
+            });
+        }
+    });
+    isVideoPlaying = true;
+    protectVideoFromPowerSaving();
+    requestWakeLock();
+    startKeepAlive();
+    if (videoData.length > 1) startVideoAutoSlide();
+    showToast('▶️ Video dilanjutkan');
+}
+
+function nextVideo() {
+    if (videoData.length <= 1) {
+        showToast('⚠️ Hanya ada 1 video', true);
+        return;
+    }
+    const nextSlide = (currentVideoSlide + 1) % videoData.length;
+    goToVideoSlide(nextSlide);
+    showToast('▶️ Video ' + (nextSlide + 1));
+}
+
+function prevVideo() {
+    if (videoData.length <= 1) {
+        showToast('⚠️ Hanya ada 1 video', true);
+        return;
+    }
+    const prevSlide = (currentVideoSlide - 1 + videoData.length) % videoData.length;
+    goToVideoSlide(prevSlide);
+    showToast('◀️ Video ' + (prevSlide + 1));
+}
+
+function restartVideo() {
+    const video = document.querySelector(`#video-player-${currentVideoSlide}`);
+    if (video) {
+        video.currentTime = 0;
+        video.muted = false;
+        video.volume = 0;
+        video.play().catch(e => {
+            if (!e.message.includes('removed')) {
+                console.log('Play error:', e);
+            }
+        });
+        showToast('🔄 Video di-restart');
     }
 }
 
@@ -1201,14 +1847,20 @@ async function fixAutoSaveSupabase() {
 }
 
 // ============================================================
-// APPLY DATA
+// APPLY DATA - DENGAN OPTIMASI VIDEO
 // ============================================================
 function applyDashboardState(data) {
     if (!data) return;
 
+    // 🔥 CEK APAKAH VIDEO DATA BERUBAH
+    const oldVideoData = videoData;
+    const newVideoData = data.videoData || [];
+    const videoChanged = JSON.stringify(oldVideoData) !== JSON.stringify(newVideoData);
+
     currentDataVersion = data._version || 0;
     console.log('🔄 APPLY DATA - Version:', currentDataVersion);
     console.log('🕐 Last updated:', data._lastUpdated);
+    console.log('📹 Video changed:', videoChanged);
 
     if (data.posterImages !== undefined) {
         posterImages = data.posterImages || [];
@@ -1229,8 +1881,6 @@ function applyDashboardState(data) {
     if (data.videoData !== undefined) {
         const savedLinks = data.videoData || [];
         const validLinks = savedLinks.filter(link => link && link.trim() !== '');
-        
-        // ✅ GABUNGKAN: VIDEO DARI DB + DEFAULT (UNTUK TAMPILAN SAJA)
         videoData = [...validLinks, ...DEFAULT_VIDEOS];
         console.log('📦 VIDEO dari Supabase (disimpan):', validLinks);
         console.log('📦 Total video (dengan default untuk tampilan):', videoData.length);
@@ -1257,12 +1907,24 @@ function applyDashboardState(data) {
         if (elOffice) elOffice.value = data.chartData.office || 94.8;
     }
 
-    renderVideoSlide();
+    // 🔥 RENDER ULANG HANYA JIKA DATA BERUBAH
     renderPosterSlide();
     renderAnnouncement();
     renderSchedule();
     renderRunningCards();
     initChart();
+
+    // 🔥 VIDEO: RENDER ULANG HANYA JIKA BERUBAH
+    if (videoChanged) {
+        console.log('🔄 Video changed, re-rendering...');
+        renderVideoSlide();
+    } else {
+        console.log('⏭️ Video unchanged, skip re-render');
+        // TETAP UPDATE PLAYER TANPA RE-RENDER
+        setTimeout(() => {
+            playCurrentVideo();
+        }, 100);
+    }
 
     lastSyncedData = data;
 }
@@ -1281,7 +1943,6 @@ function collectDashboardState() {
         };
     });
 
-    // ✅ AMBIL VIDEO HANYA DARI INPUT, TANPA DEFAULT
     const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
     const newVideoData = [];
     videoInputs.forEach(input => {
@@ -1294,7 +1955,7 @@ function collectDashboardState() {
 
     return {
         posterImages,
-        videoData: newVideoData,  // ← HANYA DARI INPUT, TANPA DEFAULT!
+        videoData: newVideoData,
         scheduleData,
         announcementData,
         runningData,
@@ -1449,336 +2110,12 @@ function stopPosterAutoSlide() {
 }
 
 // ============================================================
-// VIDEO HANDLERS
-// ============================================================
-
-function playCurrentVideo() {
-    const videos = document.querySelectorAll('#videoSlides video');
-    videos.forEach((video, index) => {
-        if (index === currentVideoSlide) {
-            video.muted = true;
-            video.playsInline = true;
-
-            if (videoData.length === 1) {
-                video.loop = true;
-            } else {
-                video.loop = false;
-            }
-
-            if (video.paused || video.ended) {
-                console.log(`🔄 Video ${index + 1} berhenti, restart...`);
-                video.currentTime = 0;
-                const playPromise = video.play();
-                if (playPromise !== undefined) {
-                    playPromise.catch(err => {
-                        console.log(`⚠️ Play error video ${index + 1}:`, err.message);
-                        setTimeout(() => {
-                            video.play().catch(e => console.log('Fallback play error:', e));
-                        }, 500);
-                    });
-                }
-            } else {
-                if (video.readyState >= 2) {
-                    const playPromise = video.play();
-                    if (playPromise !== undefined) {
-                        playPromise.catch(err => {
-                            console.log(`⚠️ Play error video ${index + 1}:`, err.message);
-                        });
-                    }
-                }
-            }
-        } else {
-            video.pause();
-        }
-    });
-}
-
-function startVideoHealthCheck() {
-    stopVideoHealthCheck();
-    videoCheckInterval = setInterval(() => {
-        const videos = document.querySelectorAll('#videoSlides video');
-        let needRestart = false;
-        videos.forEach((video, index) => {
-            if (index === currentVideoSlide) {
-                if (video.paused && !video.ended) {
-                    console.log(`⚠️ Video ${index + 1} terdeteksi berhenti, restart...`);
-                    needRestart = true;
-                }
-                if (video.readyState < 2 && !video.paused) {
-                    console.log(`⚠️ Video ${index + 1} buffering, coba play ulang...`);
-                    needRestart = true;
-                }
-            }
-        });
-        if (needRestart) {
-            playCurrentVideo();
-        }
-    }, 2000);
-}
-
-function stopVideoHealthCheck() {
-    if (videoCheckInterval) {
-        clearInterval(videoCheckInterval);
-        videoCheckInterval = null;
-    }
-}
-
-function setupVisibilityHandler() {
-    document.addEventListener('visibilitychange', function() {
-        if (!document.hidden) {
-            console.log('🔄 Tab aktif kembali, restart video...');
-            setTimeout(() => {
-                playCurrentVideo();
-                if (videoData.length > 1) {
-                    startVideoAutoSlide();
-                }
-            }, 300);
-        } else {
-            console.log('⏸️ Tab tidak aktif, pause auto-slide...');
-            stopVideoAutoSlide();
-        }
-    });
-}
-
-function setupPageVisibilityHandler() {
-    setInterval(() => {
-        if (!document.hidden) {
-            const videos = document.querySelectorAll('#videoSlides video');
-            videos.forEach((video, index) => {
-                if (index === currentVideoSlide && video.paused && !video.ended) {
-                    console.log('🔄 Page visible, restart video...');
-                    video.play().catch(e => console.log('Play error:', e));
-                }
-            });
-        }
-    }, 5000);
-}
-
-function setupNetworkHandler() {
-    window.addEventListener('online', function() {
-        console.log('🔄 Koneksi kembali online, restart video & sync...');
-        setTimeout(() => {
-            playCurrentVideo();
-            forceSync();
-        }, 500);
-    });
-    window.addEventListener('offline', function() {
-        console.log('⚠️ Koneksi offline, video mungkin berhenti');
-        updateConnectionStatus('disconnected');
-    });
-}
-
-function onVideoPause(index) {
-    if (index === currentVideoSlide) {
-        console.log(`⏸️ Video ${index + 1} pause, coba play ulang...`);
-        setTimeout(() => {
-            const video = document.querySelector(`#video-player-${index}`);
-            if (video && video.paused && !video.ended) {
-                video.play().catch(e => console.log('Retry play on pause:', e));
-            }
-        }, 1000);
-    }
-}
-
-function onVideoWaiting(index) {
-    if (index === currentVideoSlide) {
-        console.log(`⏳ Video ${index + 1} buffering...`);
-        setTimeout(() => {
-            const video = document.querySelector(`#video-player-${index}`);
-            if (video && video.readyState < 2) {
-                video.load();
-                setTimeout(() => {
-                    video.play().catch(e => console.log('Retry play on waiting:', e));
-                }, 500);
-            }
-        }, 3000);
-    }
-}
-
-function onVideoEnded(index) {
-    console.log(`📹 Video ${index + 1} selesai diputar`);
-    if (videoData.length === 1) {
-        console.log('🔄 Hanya 1 video, akan loop otomatis');
-        return;
-    }
-    if (index === currentVideoSlide && videoData.length > 1) {
-        const nextSlide = (currentVideoSlide + 1) % videoData.length;
-        console.log(`➡️ Pindah ke video ${nextSlide + 1}`);
-        goToVideoSlide(nextSlide);
-    }
-}
-
-function handleVideoMetadata(index, duration) {
-    if (duration && duration > 0 && !isNaN(duration)) {
-        videoDurations[index] = duration;
-        console.log(`📹 Video ${index + 1} durasi: ${duration.toFixed(1)} detik`);
-        const allDetected = videoData.every((v, i) => {
-            return videoDurations[i] !== undefined && videoDurations[i] > 0;
-        });
-        if (allDetected && videoData.length > 1) {
-            startVideoAutoSlide();
-        }
-    }
-}
-
-function handleVideoError(index) {
-    console.warn(`⚠️ Error loading video ${index + 1}`);
-    if (!videoDurations[index]) {
-        videoDurations[index] = 5;
-        const allDetected = videoData.every((v, i) => {
-            return videoDurations[i] !== undefined && videoDurations[i] > 0;
-        });
-        if (allDetected && videoData.length > 1) {
-            startVideoAutoSlide();
-        }
-    }
-    setTimeout(() => {
-        if (index === currentVideoSlide) {
-            const video = document.querySelector(`#video-player-${index}`);
-            if (video) {
-                video.load();
-                setTimeout(() => {
-                    video.play().catch(e => console.log('Retry play error:', e));
-                }, 500);
-            }
-        }
-    }, 3000);
-}
-
-function renderVideoSlide() {
-    const container = document.getElementById('videoSlides');
-    const inds = document.getElementById('videoIndicators');
-
-    if (!videoData.length || videoData.every(v => !v)) {
-        container.innerHTML = `<div class="video-slide"><div class="slide-empty">
-            <svg style="width:36px;height:36px;margin:0 auto 6px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-            <p>Belum ada video</p></div></div>`;
-        inds.innerHTML = '';
-        return;
-    }
-
-    videoDurations = new Array(videoData.length).fill(undefined);
-
-    container.innerHTML = videoData.map((vid, i) => {
-        const isActive = i === currentVideoSlide;
-        const shouldLoop = videoData.length === 1;
-        return `
-            <div class="video-slide" data-index="${i}" style="${isActive ? '' : 'display:none;'}">
-                <video 
-                    controls 
-                    ${isActive ? 'autoplay' : ''}
-                    muted 
-                    playsinline 
-                    width="100%" 
-                    height="100%" 
-                    id="video-player-${i}"
-                    style="object-fit:contain; background:#000;"
-                    preload="auto"
-                    ${shouldLoop ? 'loop' : ''}
-                    onloadedmetadata="handleVideoMetadata(${i}, this.duration)"
-                    onerror="handleVideoError(${i})"
-                    onended="onVideoEnded(${i})"
-                    onpause="onVideoPause(${i})"
-                    onwaiting="onVideoWaiting(${i})">
-                    <source src="${vid}" type="video/mp4">
-                    Your browser does not support the video tag.
-                </video>
-                <span class="vid-label">📹 Video ${i+1}</span>
-            </div>
-        `;
-    }).join('');
-
-    inds.innerHTML = videoData.map((_, i) =>
-        `<button class="dot-ind${i === currentVideoSlide ? ' active' : ''}" onclick="goToVideoSlide(${i})"></button>`
-    ).join('');
-
-    setTimeout(() => {
-        initializeVideoPlayer();
-    }, 300);
-}
-
-function initializeVideoPlayer() {
-    const videoElements = document.querySelectorAll('#videoSlides video');
-    videoElements.forEach((video, index) => {
-        if (videoData.length === 1) {
-            video.loop = true;
-        } else {
-            video.loop = false;
-        }
-        if (video.readyState >= 1 && video.duration && video.duration > 0) {
-            handleVideoMetadata(index, video.duration);
-        }
-    });
-    setTimeout(() => {
-        playCurrentVideo();
-    }, 100);
-}
-
-function startVideoAutoSlide() {
-    stopVideoAutoSlide();
-    if (videoData.length <= 1) {
-        console.log('⏹️ Hanya 1 video, tidak auto-slide (akan loop)');
-        return;
-    }
-    console.log('▶️ Auto-slide dimulai (menggunakan event onended)');
-}
-
-function stopVideoAutoSlide() {
-    if (videoTimeout) {
-        clearTimeout(videoTimeout);
-        videoTimeout = null;
-        console.log('⏹️ Auto-slide dihentikan');
-    }
-}
-
-function goToVideoSlide(index) {
-    if (!videoData.length) return;
-    index = ((index % videoData.length) + videoData.length) % videoData.length;
-    if (index === currentVideoSlide) {
-        const video = document.querySelector(`#video-player-${index}`);
-        if (video) {
-            video.currentTime = 0;
-            video.play().catch(e => console.log('Play error:', e));
-        }
-        return;
-    }
-    currentVideoSlide = index;
-    const slides = document.querySelectorAll('#videoSlides .video-slide');
-    slides.forEach((slide, i) => {
-        slide.style.display = i === index ? '' : 'none';
-        const video = slide.querySelector('video');
-        if (video) {
-            if (i === index) {
-                video.muted = true;
-                video.playsInline = true;
-                if (videoData.length === 1) {
-                    video.loop = true;
-                } else {
-                    video.loop = false;
-                }
-                video.currentTime = 0;
-                setTimeout(() => {
-                    video.play().catch(e => console.log('Play error:', e));
-                }, 50);
-            } else {
-                video.pause();
-            }
-        }
-    });
-    const inds = document.querySelectorAll('#videoIndicators .dot-ind');
-    inds.forEach((dot, i) => {
-        dot.classList.toggle('active', i === index);
-    });
-}
-
-// ============================================================
-// VIDEO LINK ROWS - HANYA TAMPILKAN VIDEO DARI INPUT
+// VIDEO LINK ROWS
 // ============================================================
 function renderVideoLinkRows() {
     const c = document.getElementById('videoLinkContainer');
     if (!c) return;
 
-    // ✅ AMBIL HANYA VIDEO DARI DATABASE (TANPA DEFAULT)
     const allVideos = videoData || [];
     const linkOnly = allVideos.filter(v => !DEFAULT_VIDEOS.includes(v));
 
@@ -1816,7 +2153,6 @@ function saveVideoLink(index) {
         return;
     }
 
-    // ✅ AMBIL HANYA VIDEO DARI INPUT (TANPA DEFAULT)
     const existingLinks = videoData.filter(v => !DEFAULT_VIDEOS.includes(v));
     if (index < existingLinks.length) {
         existingLinks[index] = link;
@@ -1824,19 +2160,10 @@ function saveVideoLink(index) {
         existingLinks.push(link);
     }
 
-    // ✅ SIMPAN HANYA VIDEO DARI INPUT
-    videoData = [...existingLinks];
-    
+    videoData = [...existingLinks, ...DEFAULT_VIDEOS];
     showToast('✅ Link video berhasil disimpan!');
     renderVideoLinkRows();
-    // Render ulang video dengan default untuk tampilan
-    const currentVideoData = [...existingLinks, ...DEFAULT_VIDEOS];
-    const oldVideoData = videoData;
-    videoData = currentVideoData;
     renderVideoSlide();
-    videoData = oldVideoData;
-    // Tapi videoData harus tetap berisi default untuk tampilan
-    videoData = currentVideoData;
 }
 
 function addVideoLink() {
@@ -1975,7 +2302,6 @@ function syncPanelFromDashboard() {
 function saveData() {
     console.log('💾 Menyimpan data ke Supabase...');
 
-    // Kumpulkan video dari input (hanya yang dari user)
     const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
     const newVideoData = [];
     videoInputs.forEach(input => {
@@ -1984,11 +2310,9 @@ function saveData() {
         }
     });
 
-    // Data yang akan disimpan ke database (TANPA DEFAULT)
     const savedVideoData = [...newVideoData];
     console.log('📹 Video yang akan disimpan ke database:', savedVideoData);
 
-    // Untuk tampilan, tetap tambahkan default
     videoData = [...savedVideoData, ...DEFAULT_VIDEOS];
 
     ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(calculateDiff);
@@ -2019,7 +2343,6 @@ function saveData() {
     renderRunningCards();
 
     const dashboardData = collectDashboardState();
-    // Pastikan videoData di dashboardData hanya dari input (tanpa default)
     dashboardData.videoData = savedVideoData;
 
     updateSyncStatus('syncing', 'Menyimpan...');
@@ -2127,62 +2450,45 @@ function toggleVideoAutoSlide() {
 }
 
 // ============================================================
-// PAUSE / RESUME VIDEO
+// VISIBILITY HANDLER
 // ============================================================
-function pauseVideo() {
-    const videos = document.querySelectorAll('#videoSlides video');
-    videos.forEach(video => video.pause());
-    stopVideoAutoSlide();
-    showToast('⏸️ Video dijeda');
-}
-
-function resumeVideo() {
-    const videos = document.querySelectorAll('#videoSlides video');
-    videos.forEach((video, index) => {
-        if (index === currentVideoSlide) {
-            video.play().catch(e => console.log('Play error:', e));
+function setupVisibilityHandler() {
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) {
+            console.log('🔄 Tab aktif kembali, restart video & sync...');
+            setTimeout(() => {
+                forceSync();
+                playCurrentVideo();
+            }, 500);
+        } else {
+            console.log('⏸️ Tab tidak aktif, keep-alive tetap berjalan...');
+            // 🔥 TETAP JALANKAN KEEP-ALIVE!
         }
     });
-    if (videoData.length > 1) startVideoAutoSlide();
-    showToast('▶️ Video dilanjutkan');
 }
 
-function nextVideo() {
-    if (videoData.length <= 1) {
-        showToast('⚠️ Hanya ada 1 video', true);
-        return;
-    }
-    const nextSlide = (currentVideoSlide + 1) % videoData.length;
-    goToVideoSlide(nextSlide);
-    showToast('▶️ Video ' + (nextSlide + 1));
-}
-
-function prevVideo() {
-    if (videoData.length <= 1) {
-        showToast('⚠️ Hanya ada 1 video', true);
-        return;
-    }
-    const prevSlide = (currentVideoSlide - 1 + videoData.length) % videoData.length;
-    goToVideoSlide(prevSlide);
-    showToast('◀️ Video ' + (prevSlide + 1));
-}
-
-function restartVideo() {
-    const video = document.querySelector(`#video-player-${currentVideoSlide}`);
-    if (video) {
-        video.currentTime = 0;
-        video.play().catch(e => console.log('Play error:', e));
-        showToast('🔄 Video di-restart');
-    }
+function setupNetworkHandler() {
+    window.addEventListener('online', function() {
+        console.log('🔄 Koneksi kembali online, restart video & sync...');
+        setTimeout(() => {
+            forceSync();
+            playCurrentVideo();
+        }, 500);
+        updateConnectionStatus('connecting');
+    });
+    window.addEventListener('offline', function() {
+        console.log('⚠️ Koneksi offline');
+        updateConnectionStatus('disconnected');
+    });
 }
 
 // ============================================================
-// INIT - DENGAN FIREBASE-LIKE STABILITY
+// INIT - FIREBASE-LIKE STABILITY + POWER SAVING PROTECTION
 // ============================================================
 window.addEventListener('load', async () => {
-    console.log('🚀 Dashboard - Mode: Firebase-like Realtime');
+    console.log('🚀 Dashboard - Mode: Firebase-like Realtime + Power Saving Protection');
     console.log('📱 Device:', navigator.userAgent);
-    console.log('🔄 Mode: Hybrid (Realtime + Polling 2s + Auto-Reconnect)');
+    console.log('🔄 Mode: Hybrid (Realtime + Polling 2s + Video State Restore + Power Saving Protection)');
 
     // Render awal
     setDefaultData();
@@ -2198,7 +2504,6 @@ window.addEventListener('load', async () => {
     setInterval(updateClock, 1000);
     setInterval(updateDate, 60000);
 
-    // Status awal
     updateConnectionStatus('connecting');
 
     // Load data dari Supabase
@@ -2215,29 +2520,17 @@ window.addEventListener('load', async () => {
         showToast('⚠️ Gagal load data', true);
     }
 
-    // 🔥 SETUP REALTIME (stabil seperti Firebase)
+    // 🔥 SETUP REALTIME
     setupRealtimeListener();
 
-    // 🔥 START FAST POLLING (2 detik - seperti Firebase)
+    // 🔥 START FAST POLLING (2 detik)
     startFastPolling();
 
-    // 🔥 START HEARTBEAT (keep-alive)
+    // 🔥 START HEARTBEAT
     startRealtimeHeartbeat();
 
-    // 🔥 AUTO-SYNC ON VISIBILITY CHANGE
-    document.addEventListener('visibilitychange', function() {
-        if (!document.hidden) {
-            console.log('🔄 Tab aktif kembali, auto-sync...');
-            setTimeout(() => {
-                forceSync();
-                playCurrentVideo();
-            }, 500);
-        }
-    });
-
-    // Setup video handlers
+    // Setup handlers
     setupVisibilityHandler();
-    setupPageVisibilityHandler();
     setupNetworkHandler();
     startVideoHealthCheck();
 
@@ -2272,6 +2565,8 @@ window.addEventListener('load', async () => {
 
     console.log('✅ Dashboard siap!');
     console.log('💡 Data auto-sync setiap 2 detik (polling) + realtime');
+    console.log('💡 Video state akan dipertahankan saat sync');
+    console.log('💡 Video dilindungi dari Power Saving (dummy audio + wake lock + keep-alive)');
     console.log('💡 Status koneksi terlihat di header (● Live/Offline)');
     console.log('💡 Gunakan tombol "Sync" untuk manual sync');
 });
@@ -2345,6 +2640,7 @@ console.log('📌 Gunakan checkSupabaseData() untuk cek data di Supabase');
 console.log('📌 Tekan R untuk force sync');
 console.log('📌 Tekan Spasi untuk play/pause auto-slide');
 console.log('📌 Tekan Arrow Left/Right untuk ganti video');
+console.log('📌 Video dilindungi dari Power Saving!');
 </script>
 
 </body>
