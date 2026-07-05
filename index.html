@@ -2660,6 +2660,20 @@ window.addEventListener('load', async () => {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(initChart, 250);
     });
+        // 🔄 AUTO-REFRESH HALAMAN SETIAP 15 MENIT
+    function startAutoRefresh() {
+        const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 menit
+        
+        console.log('🔄 Auto-refresh akan berjalan setiap 15 menit');
+        
+        setInterval(() => {
+            console.log('🔄 Auto-refresh halaman...');
+            location.reload();
+        }, REFRESH_INTERVAL);
+    }
+    
+    startAutoRefresh();
+    // ============================================================
 
     console.log('✅ Dashboard siap!');
     console.log('💡 Data auto-sync setiap 2 detik (polling) + realtime');
