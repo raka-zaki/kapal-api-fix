@@ -121,8 +121,6 @@
         display: flex;
         flex-direction: column;
         justify-content: flex-start;
-        /* overflow-y: auto;
-        animation: scrollAnnouncement 25s linear infinite; */
         scrollbar-width: none; /* Firefox */
         -ms-overflow-style: none; /* IE/Edge */
     }
@@ -130,15 +128,6 @@
     /* 🔥 HIDDEN SCROLLBAR DI CHROME/SAFARI */
     .announcement-body::-webkit-scrollbar {
         display: none;
-    }
-
-    @keyframes scrollAnnouncement {
-        0% { transform: translateY(0); }
-        100% { transform: translateY(-50%); }
-    }
-
-    .announcement-body:hover {
-        animation-play-state: paused;
     }
 
     .ann-title { font-size: 1.6rem; font-weight: 900; color: #fbbf24; text-shadow: 0 0 20px rgba(251,191,36,0.2); margin-bottom: 4px; line-height: 1.2; }
@@ -300,6 +289,41 @@
     ::-webkit-scrollbar-track { background: #0f172a; border-radius: 10px; }
     ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
 
+    /* 🔥 LOADING INDICATOR */
+    #loadingIndicator {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.85);
+        backdrop-filter: blur(4px);
+        z-index: 99999;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        gap: 16px;
+    }
+    #loadingIndicator .spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid #1e293b;
+        border-top: 4px solid #fbbf24;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    #loadingIndicator .text {
+        color: #fbbf24;
+        font-size: 1.2rem;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+    }
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
     @media (min-width:1920px) {
         #root { padding: 14px 24px 12px; gap: 8px; }
         #hdr { height: 64px; }
@@ -343,6 +367,12 @@
 </style>
 </head>
 <body>
+
+<!-- LOADING INDICATOR -->
+<div id="loadingIndicator">
+    <div class="spinner"></div>
+    <div class="text">⏳ Loading Dashboard...</div>
+</div>
 
 <!-- TOAST -->
 <div id="toast" class="toast">✅ Data berhasil disimpan!</div>
@@ -626,7 +656,7 @@
 </div>
 
 <!-- ============================================================
-     JAVASCRIPT
+     JAVASCRIPT - FIXED (Tanpa Ubah CSS)
      ============================================================ -->
 <script>
 // ============================================================
@@ -671,6 +701,14 @@ let keepAliveInterval = null;
 let wakeLock = null;
 let dummyAudioContext = null;
 let userInteracted = false;
+
+// 🔥 CACHE
+let cachedData = null;
+let cacheExpiry = 0;
+const CACHE_TTL = 60000; // 1 menit
+
+// 🔥 DEBOUNCE
+let renderVideoTimeout = null;
 
 const STATUS_LABELS = { ongoing: '● Berlangsung', upcoming: '○ Akan Datang', done: '✓ Selesai' };
 const STATUS_CLASSES = { ongoing: 'ongoing', upcoming: 'upcoming', done: 'done' };
@@ -854,14 +892,14 @@ function releaseWakeLock() {
 }
 
 // ============================================================
-// 🔥 KEEP ALIVE
+// 🔥 KEEP ALIVE - FIXED (TANPA video.load())
 // ============================================================
 function startKeepAlive() {
     if (keepAliveInterval) {
         clearInterval(keepAliveInterval);
     }
     
-    console.log('🔄 Starting keep-alive (every 2s)...');
+    console.log('🔄 Starting keep-alive (every 3s)...');
     
     keepAliveInterval = setInterval(() => {
         const video = document.querySelector(`#video-player-${currentVideoSlide}`);
@@ -871,14 +909,21 @@ function startKeepAlive() {
             console.log('⚡ Video detected paused, restarting...');
             video.muted = true;
             video.volume = 0;
-            video.load();
+            // 🔥 HAPUS video.load() - INI PENYEBAB ABORT ERROR!
+            // video.load(); // ← JANGAN PAKAI INI!
             setTimeout(() => {
                 video.play()
                     .then(() => console.log('✅ Video restarted from keep-alive'))
-                    .catch(err => console.warn('⚠️ Keep-alive play error:', err));
+                    .catch(err => {
+                        if (err.name === 'AbortError') {
+                            console.log('⏭️ AbortError ignored');
+                            return;
+                        }
+                        console.warn('⚠️ Keep-alive play error:', err);
+                    });
             }, 200);
         }
-    }, 2000);
+    }, 3000);
 }
 
 function stopKeepAlive() {
@@ -916,6 +961,7 @@ function protectVideoFromPowerSaving() {
             console.log('⚡ Video paused (probably power saving), restarting...');
             this.muted = true;
             this.volume = 0;
+            // 🔥 JANGAN PAKAI video.load()!
             setTimeout(() => {
                 this.play().catch(() => {});
             }, 100);
@@ -963,6 +1009,10 @@ function restoreVideoState(state) {
     if (!state.paused && !state.ended) {
         setTimeout(() => {
             video.play().catch(e => {
+                if (e.name === 'AbortError') {
+                    console.log('⏭️ AbortError ignored');
+                    return;
+                }
                 if (!e.message.includes('removed')) {
                     console.warn('Restore play error:', e);
                 }
@@ -989,13 +1039,17 @@ function unmuteVideo() {
                 showToast('🔊 Video unmuted!');
             })
             .catch(err => {
+                if (err.name === 'AbortError') {
+                    console.log('⏭️ AbortError ignored');
+                    return;
+                }
                 console.warn('⚠️ Unmute error:', err);
             });
     }
 }
 
 // ============================================================
-// 🔥 PLAY CURRENT VIDEO
+// 🔥 PLAY CURRENT VIDEO - FIXED (TANPA video.load())
 // ============================================================
 function playCurrentVideo() {
     const videos = document.querySelectorAll('#videoSlides video');
@@ -1026,6 +1080,7 @@ function playCurrentVideo() {
                 return;
             }
 
+            // 🔥 JANGAN PAKAI video.load() DI SINI!
             const playPromise = video.play();
             if (playPromise !== undefined) {
                 playPromise
@@ -1040,8 +1095,14 @@ function playCurrentVideo() {
                         }
                     })
                     .catch(error => {
+                        if (error.name === 'AbortError') {
+                            console.log(`⏭️ Video ${index + 1} AbortError ignored`);
+                            return;
+                        }
+                        
                         if (error.message && error.message.includes('paused to save power')) {
                             console.log(`⚠️ Power saving detected, reloading video ${index+1}...`);
+                            // 🔥 PAKAI load() HANYA UNTUK POWER SAVING
                             video.load();
                             ensureDummyAudioRunning();
                             setTimeout(() => {
@@ -1054,7 +1115,11 @@ function playCurrentVideo() {
                                             video.volume = 0.5;
                                         }
                                     })
-                                    .catch(() => {});
+                                    .catch(err => {
+                                        if (err.name !== 'AbortError') {
+                                            console.warn('Recovery play error:', err);
+                                        }
+                                    });
                             }, 500);
                         } else if (error.message && error.message.includes('Unmuting failed')) {
                             console.log(`⏳ Unmuting failed, waiting for user interaction...`);
@@ -1108,6 +1173,7 @@ function renderVideoSlide() {
                     style="object-fit:contain; background:#000;"
                     preload="metadata"
                     ${shouldLoop ? 'loop' : ''}
+                    loading="lazy"
                     onloadedmetadata="handleVideoMetadata(${i}, this.duration)"
                     onerror="handleVideoError(${i})"
                     onended="onVideoEnded(${i})"
@@ -1214,7 +1280,7 @@ function stopVideoHealthCheck() {
 }
 
 // ============================================================
-// VIDEO HANDLERS
+// VIDEO HANDLERS - DENGAN AbortError HANDLING
 // ============================================================
 function onVideoPause(index) {
     if (index === currentVideoSlide) {
@@ -1226,6 +1292,10 @@ function onVideoPause(index) {
                 video.muted = true;
                 video.volume = 0;
                 video.play().catch(e => {
+                    if (e.name === 'AbortError') {
+                        console.log('⏭️ AbortError ignored');
+                        return;
+                    }
                     if (!e.message.includes('removed')) {
                         console.log('Retry play on pause:', e);
                     }
@@ -1241,18 +1311,22 @@ function onVideoWaiting(index) {
         setTimeout(() => {
             const video = document.querySelector(`#video-player-${index}`);
             if (video && video.readyState < 2) {
-                video.load();
+                // 🔥 JANGAN PAKAI video.load() DI SINI!
                 setTimeout(() => {
                     video.muted = true;
                     video.volume = 0;
                     video.play().catch(e => {
+                        if (e.name === 'AbortError') {
+                            console.log('⏭️ AbortError ignored');
+                            return;
+                        }
                         if (!e.message.includes('removed')) {
                             console.log('Retry play on waiting:', e);
                         }
                     });
                 }, 500);
             }
-        }, 3000);
+        }, 1000);
     }
 }
 
@@ -1296,20 +1370,22 @@ function handleVideoError(index) {
     setTimeout(() => {
         if (index === currentVideoSlide) {
             const video = document.querySelector(`#video-player-${index}`);
-            if (video) {
-                video.load();
-                setTimeout(() => {
-                    video.muted = true;
-                    video.volume = 0;
-                    video.play().catch(e => {
-                        if (!e.message.includes('removed')) {
-                            console.log('Retry play error:', e);
-                        }
-                    });
-                }, 500);
+            if (video && document.contains(video)) {
+                // 🔥 JANGAN PAKAI video.load()!
+                video.muted = true;
+                video.volume = 0;
+                video.play().catch(e => {
+                    if (e.name === 'AbortError') {
+                        console.log('⏭️ AbortError ignored');
+                        return;
+                    }
+                    if (!e.message.includes('removed')) {
+                        console.log('Retry play error:', e);
+                    }
+                });
             }
         }
-    }, 3000);
+    }, 2000);
 }
 
 function startVideoAutoSlide() {
@@ -1339,6 +1415,10 @@ function goToVideoSlide(index) {
             video.muted = true;
             video.volume = 0;
             video.play().catch(e => {
+                if (e.name === 'AbortError') {
+                    console.log('⏭️ AbortError ignored');
+                    return;
+                }
                 if (!e.message.includes('removed')) {
                     console.log('Play error:', e);
                 }
@@ -1364,6 +1444,10 @@ function goToVideoSlide(index) {
                 video.currentTime = 0;
                 setTimeout(() => {
                     video.play().catch(e => {
+                        if (e.name === 'AbortError') {
+                            console.log('⏭️ AbortError ignored');
+                            return;
+                        }
                         if (!e.message.includes('removed')) {
                             console.log('Play error:', e);
                         }
@@ -1397,6 +1481,10 @@ function resumeVideo() {
             video.muted = true;
             video.volume = 0;
             video.play().catch(e => {
+                if (e.name === 'AbortError') {
+                    console.log('⏭️ AbortError ignored');
+                    return;
+                }
                 if (!e.message.includes('removed')) {
                     console.log('Play error:', e);
                 }
@@ -1440,6 +1528,10 @@ function restartVideo() {
         video.muted = true;
         video.volume = 0;
         video.play().catch(e => {
+            if (e.name === 'AbortError') {
+                console.log('⏭️ AbortError ignored');
+                return;
+            }
             if (!e.message.includes('removed')) {
                 console.log('Play error:', e);
             }
@@ -1449,10 +1541,30 @@ function restartVideo() {
 }
 
 // ============================================================
-// SUPABASE - LOAD DATA
+// SUPABASE - LOAD DATA (DENGAN CACHE)
 // ============================================================
+function showLoading() {
+    const el = document.getElementById('loadingIndicator');
+    if (el) el.style.display = 'flex';
+}
+
+function hideLoading() {
+    const el = document.getElementById('loadingIndicator');
+    if (el) el.style.display = 'none';
+}
+
 async function loadFromSupabase(retryCount = 0) {
     const MAX_RETRY = 3;
+    
+    // 🔥 CEK CACHE
+    if (cachedData && Date.now() < cacheExpiry) {
+        console.log('⏭️ Pakai cache data');
+        applyDashboardState(cachedData);
+        return true;
+    }
+    
+    showLoading();
+    
     try {
         updateSyncStatus('syncing', 'Memuat data dari Supabase...');
         
@@ -1479,6 +1591,11 @@ async function loadFromSupabase(retryCount = 0) {
             console.log('🕐 Last updated:', record._last_updated);
             
             currentDataVersion = version;
+            
+            // 🔥 SIMPAN CACHE
+            cachedData = dashboardData;
+            cacheExpiry = Date.now() + CACHE_TTL;
+            
             applyDashboardState({ 
                 ...dashboardData, 
                 _version: version, 
@@ -1487,16 +1604,19 @@ async function loadFromSupabase(retryCount = 0) {
             
             updateSyncStatus('synced', 'v' + version + ' dari Supabase');
             updateConnectionStatus('connected');
+            hideLoading();
             return true;
         }
         
         console.log('⚠️ Data kosong di Supabase, membuat default...');
+        hideLoading();
         return await createDefaultData();
         
     } catch (error) {
         console.error('❌ Error load:', error);
         updateSyncStatus('error', 'Gagal memuat');
         updateConnectionStatus('disconnected');
+        hideLoading();
         
         if (retryCount < MAX_RETRY) {
             console.warn(`⚠️ Mencoba lagi (${retryCount + 1}/${MAX_RETRY})...`);
@@ -1549,6 +1669,11 @@ async function saveToSupabase(dashboardData, newVersion = null) {
             
             console.log('✅ Data diupdate! Version:', lastVersion + 1);
             currentDataVersion = lastVersion + 1;
+            
+            // 🔥 UPDATE CACHE
+            cachedData = dashboardData;
+            cacheExpiry = Date.now() + CACHE_TTL;
+            
             showToast('✅ Data diupdate! (v' + (lastVersion + 1) + ')');
             updateSyncStatus('synced', 'v' + (lastVersion + 1) + ' terupdate');
             return true;
@@ -1574,6 +1699,11 @@ async function saveToSupabase(dashboardData, newVersion = null) {
         
         console.log('✅ Data tersimpan! Version:', finalVersion);
         currentDataVersion = finalVersion;
+        
+        // 🔥 UPDATE CACHE
+        cachedData = dashboardData;
+        cacheExpiry = Date.now() + CACHE_TTL;
+        
         showToast('✅ Data tersimpan di cloud! (v' + finalVersion + ')');
         updateSyncStatus('synced', 'v' + finalVersion + ' tersimpan');
         
@@ -1655,6 +1785,11 @@ function setupRealtimeListener() {
                         const videoState = saveVideoState();
                         
                         currentDataVersion = newVersion;
+                        
+                        // 🔥 UPDATE CACHE
+                        cachedData = newData;
+                        cacheExpiry = Date.now() + CACHE_TTL;
+                        
                         applyDashboardState({ 
                             ...newData, 
                             _version: newVersion, 
@@ -1706,14 +1841,14 @@ function setupRealtimeListener() {
 }
 
 // ============================================================
-// 🔥 FAST POLLING (2 detik)
+// 🔥 FAST POLLING (5 detik - LEBIH HEMAT)
 // ============================================================
 function startFastPolling() {
     if (pollingInterval) {
         clearInterval(pollingInterval);
     }
     
-    console.log('🔄 Starting fast polling (every 2s)...');
+    console.log('🔄 Starting fast polling (every 5s)...');
     
     pollingInterval = setInterval(async () => {
         try {
@@ -1744,6 +1879,11 @@ function startFastPolling() {
                     if (fullData && fullData.length > 0) {
                         const record = fullData[0];
                         currentDataVersion = serverVersion;
+                        
+                        // 🔥 UPDATE CACHE
+                        cachedData = record.data;
+                        cacheExpiry = Date.now() + CACHE_TTL;
+                        
                         applyDashboardState({ 
                             ...record.data, 
                             _version: serverVersion, 
@@ -1767,11 +1907,11 @@ function startFastPolling() {
         } catch (error) {
             // Silent fail
         }
-    }, 5000);
+    }, 5000); // ← 5 DETIK
 }
 
 // ============================================================
-// 🔥 HEARTBEAT
+// 🔥 HEARTBEAT (30 detik)
 // ============================================================
 function startRealtimeHeartbeat() {
     if (heartbeatInterval) {
@@ -1798,7 +1938,7 @@ function startRealtimeHeartbeat() {
                 console.warn('⚠️ Heartbeat error:', e);
             }
         }
-    }, 30000);
+    }, 30000); // ← 30 DETIK
 }
 
 // ============================================================
@@ -1829,6 +1969,11 @@ async function forceSync() {
                 const videoState = saveVideoState();
                 
                 currentDataVersion = version;
+                
+                // 🔥 UPDATE CACHE
+                cachedData = record.data;
+                cacheExpiry = Date.now() + CACHE_TTL;
+                
                 applyDashboardState({ 
                     ...record.data, 
                     _version: version, 
@@ -1925,6 +2070,7 @@ async function forceResetSupabase() {
         
         console.log('✅ Data lama dihapus');
         currentDataVersion = 0;
+        cachedData = null;
         
         setDefaultData();
         const data = collectDashboardState();
@@ -2633,9 +2779,8 @@ function setupNetworkHandler() {
 // INIT
 // ============================================================
 window.addEventListener('load', async () => {
-    console.log('🚀 Dashboard - Mode: Firebase-like Realtime + Power Saving Protection');
+    console.log('🚀 Dashboard - Mode: Realtime + Polling 5s + Cache 1m');
     console.log('📱 Device:', navigator.userAgent);
-    console.log('🔄 Mode: Hybrid (Realtime + Polling 2s + Video State Restore + Power Saving Protection)');
 
     setDefaultData();
     renderVideoSlide();
@@ -2668,10 +2813,10 @@ window.addEventListener('load', async () => {
     // 🔥 SETUP REALTIME
     setupRealtimeListener();
 
-    // 🔥 START FAST POLLING
+    // 🔥 START FAST POLLING (5 detik)
     startFastPolling();
 
-    // 🔥 START HEARTBEAT
+    // 🔥 START HEARTBEAT (30 detik)
     startRealtimeHeartbeat();
 
     // 🔥 SETUP USER INTERACTION
@@ -2732,7 +2877,8 @@ window.addEventListener('load', async () => {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(initChart, 250);
     });
-        // 🔄 AUTO-REFRESH HALAMAN SETIAP 15 MENIT
+
+    // 🔄 AUTO-REFRESH HALAMAN SETIAP 15 MENIT
     function startAutoRefresh() {
         const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 menit
         
@@ -2745,16 +2891,15 @@ window.addEventListener('load', async () => {
     }
     
     startAutoRefresh();
-    // ============================================================
 
     console.log('✅ Dashboard siap!');
-    console.log('💡 Data auto-sync setiap 2 detik (polling) + realtime');
+    console.log('💡 Data auto-sync setiap 5 detik (polling) + realtime');
     console.log('💡 Video state akan dipertahankan saat sync');
     console.log('💡 Video dilindungi dari Power Saving (dummy audio + wake lock + keep-alive)');
     console.log('💡 Status koneksi terlihat di header (● Live/Offline)');
     console.log('💡 Gunakan tombol "Sync" untuk manual sync');
-    console.log('💡 Video akan autoplay muted, unmute setelah user klik');
     console.log('💡 Shortcut keyboard dinonaktifkan agar tidak mengganggu input');
+    console.log('💡 Cache data 1 menit untuk mengurangi request');
 });
 
 // ============================================================
@@ -2814,6 +2959,7 @@ console.log('📌 ESC untuk tutup edit panel');
 console.log('📌 Video dilindungi dari Power Saving!');
 console.log('📌 Klik tombol Play/Unmute untuk suara');
 console.log('📌 Shortcut keyboard dinonaktifkan untuk kenyamanan input');
+console.log('📌 Cache aktif 1 menit untuk mengurangi request');
 </script>
 
 </body>
