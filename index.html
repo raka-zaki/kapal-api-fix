@@ -705,7 +705,7 @@ let userInteracted = false;
 // 🔥 CACHE
 let cachedData = null;
 let cacheExpiry = 0;
-const CACHE_TTL = 60000; // 1 menit
+const CACHE_TTL = 43200000; // 12 jam
 
 // 🔥 DEBOUNCE
 let renderVideoTimeout = null;
@@ -1841,14 +1841,14 @@ function setupRealtimeListener() {
 }
 
 // ============================================================
-// 🔥 FAST POLLING (5 detik - LEBIH HEMAT)
+// 🔥 FAST POLLING (30 detik - LEBIH HEMAT)
 // ============================================================
 function startFastPolling() {
     if (pollingInterval) {
         clearInterval(pollingInterval);
     }
     
-    console.log('🔄 Starting fast polling (every 5s)...');
+    console.log('🔄 Starting fast polling (every 30s)...');
     
     pollingInterval = setInterval(async () => {
         try {
@@ -1907,7 +1907,7 @@ function startFastPolling() {
         } catch (error) {
             // Silent fail
         }
-    }, 5000); // ← 5 DETIK
+    }, 30000); // ← 30 DETIK
 }
 
 // ============================================================
