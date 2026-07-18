@@ -656,7 +656,7 @@
 </div>
 
 <!-- ============================================================
-     JAVASCRIPT - FIXED (Tanpa Ubah CSS)
+     JAVASCRIPT - FINAL FIX BLURRY POSTER
      ============================================================ -->
 <script>
 // ============================================================
@@ -674,7 +674,315 @@ const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey, {
 });
 
 console.log('✅ Supabase initialized');
-console.log('✅ URL:', supabaseUrl);
+
+// ============================================================
+// 🔥 CACHE SYSTEM - SMART CACHE + FILTER BLURRY
+// ============================================================
+const CACHE_KEY = 'dashboard_data_cache';
+const CACHE_EXPIRY_KEY = 'dashboard_cache_expiry';
+const CACHE_TTL = 604800000; // 7 HARI
+const MIN_POSTER_SIZE = 50000; // 50 KB - POSTER DI BAWAH INI DIANGGAP BURIK
+
+// 🔥 SET CACHE - FILTER POSTER YANG BURIK
+function setCachedData(data) {
+    try {
+        console.log('💾 SAVING TO CACHE (filtering blurry)...');
+        
+        // 🔥 HANYA SIMPAN POSTER > 50 KB (BIAR TIDAK BURIK)
+        let posters = [];
+        if (data.posterImages && data.posterImages.length > 0) {
+            posters = data.posterImages.filter(img => {
+                const size = img ? img.length : 0;
+                return size > MIN_POSTER_SIZE;
+            });
+            console.log('📸 Posters saved (filtered >50KB):', posters.length);
+            if (data.posterImages.length !== posters.length) {
+                console.log(`⚠️ ${data.posterImages.length - posters.length} blurry posters filtered out`);
+            }
+        }
+        
+        const cleanData = {
+            videoData: data.videoData || [],
+            runningData: data.runningData || {},
+            chartData: data.chartData || {},
+            announcementData: data.announcementData || {},
+            scheduleData: data.scheduleData || [],
+            posterImages: posters,
+            _version: data._version || 0,
+            _lastUpdated: data._lastUpdated || new Date().toISOString(),
+            _posterSaved: posters.length > 0,
+            _posterCount: data.posterImages ? data.posterImages.length : 0,
+        };
+        
+        localStorage.setItem(CACHE_KEY, JSON.stringify(cleanData));
+        localStorage.setItem(CACHE_EXPIRY_KEY, String(Date.now() + CACHE_TTL));
+        console.log('✅ Cache saved! Size:', Math.round(JSON.stringify(cleanData).length/1024), 'KB');
+        console.log('📸 Posters in cache:', posters.length);
+    } catch (e) {
+        console.warn('⚠️ Gagal simpan cache:', e);
+        try {
+            const cleanData = {
+                videoData: data.videoData || [],
+                runningData: data.runningData || {},
+                chartData: data.chartData || {},
+                announcementData: data.announcementData || {},
+                scheduleData: data.scheduleData || [],
+                _version: data._version || 0,
+                _lastUpdated: data._lastUpdated || new Date().toISOString(),
+                _posterCount: data.posterImages ? data.posterImages.length : 0,
+                _posterSaved: false,
+            };
+            localStorage.setItem(CACHE_KEY, JSON.stringify(cleanData));
+            localStorage.setItem(CACHE_EXPIRY_KEY, String(Date.now() + CACHE_TTL));
+            console.log('✅ Fallback: Cache saved without posters');
+        } catch (e2) {
+            console.error('❌ Gagal simpan cache:', e2);
+        }
+    }
+}
+
+// 🔥 GET CACHE
+function getCachedData() {
+    try {
+        const data = localStorage.getItem(CACHE_KEY);
+        const expiry = parseInt(localStorage.getItem(CACHE_EXPIRY_KEY) || '0');
+        
+        console.log('🔍 Checking cache...');
+        console.log('📦 Data exists:', !!data);
+        
+        if (data) {
+            const parsed = JSON.parse(data);
+            console.log('✅ Cache found! Size:', Math.round(data.length/1024), 'KB');
+            console.log('📸 Posters in cache:', parsed.posterImages?.length || 0);
+            console.log('📸 Poster saved flag:', parsed._posterSaved ? '✅' : '❌');
+            
+            if (!parsed._posterSaved || !parsed.posterImages || parsed.posterImages.length === 0) {
+                parsed._needPosterFetch = true;
+                console.log('📸 Poster not in cache, will fetch from Supabase');
+            }
+            
+            return parsed;
+        }
+        console.log('❌ Cache tidak ditemukan');
+        return null;
+    } catch (e) {
+        console.warn('⚠️ Gagal baca cache:', e);
+        return null;
+    }
+}
+
+function clearCache() {
+    localStorage.removeItem(CACHE_KEY);
+    localStorage.removeItem(CACHE_EXPIRY_KEY);
+    sessionStorage.removeItem('posters_cache');
+    localStorage.removeItem('super_poster_cache');
+    console.log('🗑️ Cache cleared');
+}
+
+// ============================================================
+// 🔥 SUPER CACHE
+// ============================================================
+function savePostersSuper(posterData) {
+    try {
+        // 🔥 FILTER BURIK SEBELUM SIMPAN
+        const valid = posterData.filter(img => img && img.length > MIN_POSTER_SIZE);
+        localStorage.setItem('super_poster_cache', JSON.stringify(valid));
+        sessionStorage.setItem('super_poster_cache', JSON.stringify(valid));
+        document.cookie = `super_poster_cache=${encodeURIComponent(JSON.stringify(valid))}; max-age=604800; path=/`;
+        console.log('✅ Poster saved to 3 places!', valid.length, 'valid');
+    } catch (e) {
+        console.warn('⚠️ Failed to save poster:', e);
+    }
+}
+
+function getPostersSuper() {
+    try {
+        const data = localStorage.getItem('super_poster_cache');
+        if (data) {
+            const parsed = JSON.parse(data);
+            if (parsed && parsed.length > 0) {
+                console.log('📸 Posters from localStorage:', parsed.length);
+                return parsed;
+            }
+        }
+    } catch (e) {}
+    
+    try {
+        const data = sessionStorage.getItem('super_poster_cache');
+        if (data) {
+            const parsed = JSON.parse(data);
+            if (parsed && parsed.length > 0) {
+                console.log('📸 Posters from sessionStorage:', parsed.length);
+                return parsed;
+            }
+        }
+    } catch (e) {}
+    
+    try {
+        const cookies = document.cookie.split('; ');
+        for (const cookie of cookies) {
+            if (cookie.startsWith('super_poster_cache=')) {
+                const data = decodeURIComponent(cookie.split('=')[1]);
+                const parsed = JSON.parse(data);
+                if (parsed && parsed.length > 0) {
+                    console.log('📸 Posters from cookie:', parsed.length);
+                    return parsed;
+                }
+            }
+        }
+    } catch (e) {}
+    
+    return null;
+}
+
+function updatePosterCache(posters) {
+    posterImages = posters;
+    savePostersSuper(posters);
+    renderPosterSlide();
+    console.log('✅ Posters updated, saved to 3 places!');
+}
+
+function loadPosterCache() {
+    const posters = getPostersSuper();
+    if (posters && posters.length > 0) {
+        posterImages = posters;
+        renderPosterSlide();
+        console.log('📸 Posters restored from super cache:', posterImages.length);
+        return true;
+    }
+    console.log('📸 No posters in super cache');
+    return false;
+}
+
+function savePostersToSession(posters) {
+    try {
+        const valid = posters.filter(img => img && img.length > MIN_POSTER_SIZE);
+        sessionStorage.setItem('posters_cache', JSON.stringify(valid));
+        console.log('✅ Posters saved to sessionStorage:', valid.length);
+    } catch (e) {
+        console.warn('⚠️ Failed to save posters to sessionStorage:', e);
+    }
+}
+
+// ============================================================
+// 🔥 FETCH POSTER DARI SUPABASE - FILTER BURIK
+// ============================================================
+async function fetchPostersFromSupabase() {
+    try {
+        console.log('📸 Fetching posters from cloud...');
+        
+        const { data, error } = await supabaseClient
+            .from('posters')
+            .select('image_data')
+            .order('id', { ascending: true });
+            
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+            const posters = data.map(row => row.image_data);
+            
+            // 🔥 FILTER: HANYA POSTER > 50 KB
+            const validPosters = posters.filter(img => img && img.length > MIN_POSTER_SIZE);
+            console.log(`📸 Valid posters: ${validPosters.length} (${posters.length - validPosters.length} blurry filtered)`);
+            
+            if (validPosters.length === 0) {
+                console.warn('⚠️ No valid posters found (>50KB)');
+                posterImages = [];
+                renderPosterSlide();
+                return [];
+            }
+            
+            posterImages = validPosters;
+            renderPosterSlide();
+            
+            // 🔥 SIMPAN KE CACHE
+            savePostersSuper(validPosters);
+            savePostersToSession(validPosters);
+            sessionStorage.setItem('pre_refresh_poster', JSON.stringify(validPosters));
+            sessionStorage.setItem('pre_refresh_time', Date.now().toString());
+            
+            // 🔥 UPDATE CACHE UTAMA
+            const currentData = getCachedData();
+            if (currentData) {
+                currentData.posterImages = validPosters;
+                currentData._posterSaved = true;
+                setCachedData(currentData);
+            }
+            
+            console.log('✅ Posters loaded from cloud:', validPosters.length);
+            return validPosters;
+        } else {
+            console.log('📸 No posters found in cloud');
+            posterImages = [];
+            renderPosterSlide();
+            return [];
+        }
+    } catch (error) {
+        console.warn('⚠️ Failed to load posters from cloud:', error);
+        return [];
+    }
+}
+
+// ============================================================
+// 🔥 SAVE POSTER KE SUPABASE
+// ============================================================
+async function savePostersToSupabase(posters) {
+    try {
+        console.log('📸 Saving posters to cloud...');
+        await supabaseClient.from('posters').delete().neq('id', 0);
+        if (posters.length > 0) {
+            const posterData = posters.map(img => ({ image_data: img }));
+            const { error } = await supabaseClient.from('posters').insert(posterData);
+            if (error) throw error;
+            console.log('✅ Posters saved to cloud:', posters.length);
+        }
+    } catch (e) {
+        console.warn('⚠️ Failed to save posters to cloud:', e);
+    }
+}
+
+// ============================================================
+// 🔥 AUTO REFRESH - 30 MENIT
+// ============================================================
+function startAutoRefresh() {
+    const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 MENIT
+    console.log('🔄 Auto-refresh setiap 30 menit (poster tetap ada!)');
+    
+    setInterval(() => {
+        console.log('🔄 Auto-refresh halaman...');
+        if (posterImages && posterImages.length > 0) {
+            savePostersSuper(posterImages);
+            console.log('📸 Posters saved before refresh:', posterImages.length);
+        }
+        try {
+            sessionStorage.setItem('pre_refresh_poster', JSON.stringify(posterImages));
+            sessionStorage.setItem('pre_refresh_time', Date.now().toString());
+        } catch (e) {}
+        location.reload();
+    }, REFRESH_INTERVAL);
+}
+
+function restorePosterAfterRefresh() {
+    try {
+        const saved = sessionStorage.getItem('pre_refresh_poster');
+        const time = parseInt(sessionStorage.getItem('pre_refresh_time') || '0');
+        if (saved && (Date.now() - time < 300000)) {
+            const posters = JSON.parse(saved);
+            // 🔥 FILTER BURIK
+            const valid = posters.filter(img => img && img.length > MIN_POSTER_SIZE);
+            if (valid && valid.length > 0) {
+                posterImages = valid;
+                savePostersSuper(valid);
+                renderPosterSlide();
+                console.log('📸 Posters restored after refresh:', posterImages.length);
+                sessionStorage.removeItem('pre_refresh_poster');
+                sessionStorage.removeItem('pre_refresh_time');
+                return true;
+            }
+        }
+    } catch (e) {}
+    return false;
+}
 
 // ============================================================
 // STATE
@@ -699,21 +1007,14 @@ let heartbeatInterval = null;
 let isVideoPlaying = false;
 let keepAliveInterval = null;
 let wakeLock = null;
-let dummyAudioContext = null;
+let dummyAudioInterval = null;
 let userInteracted = false;
-
-// 🔥 CACHE
-let cachedData = null;
-let cacheExpiry = 0;
-const CACHE_TTL = 43200000; // 12 jam
-
-// 🔥 DEBOUNCE
-let renderVideoTimeout = null;
 
 const STATUS_LABELS = { ongoing: '● Berlangsung', upcoming: '○ Akan Datang', done: '✓ Selesai' };
 const STATUS_CLASSES = { ongoing: 'ongoing', upcoming: 'upcoming', done: 'done' };
 
 const DEFAULT_VIDEOS = [
+    'asset/video6.mp4',
     'asset/video4.mp4',
     'asset/video1.mp4',
     'asset/video2.mp4',
@@ -732,9 +1033,6 @@ function showToast(msg, isError = false) {
     setTimeout(() => t.style.display = 'none', 3000);
 }
 
-// ============================================================
-// SYNC STATUS
-// ============================================================
 function updateSyncStatus(status, message = '') {
     const el = document.getElementById('syncStatus');
     if (!el) return;
@@ -744,15 +1042,10 @@ function updateSyncStatus(status, message = '') {
     if (message) el.title = message;
 }
 
-// ============================================================
-// CONNECTION STATUS
-// ============================================================
 function updateConnectionStatus(status, message = '') {
     const dot = document.getElementById('connectionDot');
     const text = document.getElementById('connectionStatus');
-    
     if (!dot || !text) return;
-    
     switch(status) {
         case 'connected':
             dot.style.background = '#22c55e';
@@ -777,207 +1070,151 @@ function updateConnectionStatus(status, message = '') {
     }
 }
 
-// ============================================================
-// DETEKSI MOBILE
-// ============================================================
 function isMobile() {
     return /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
 // ============================================================
-// 🔥 PERMANENT DUMMY AUDIO
+// 🔥 STRONG DUMMY AUDIO
 // ============================================================
-function startPermanentDummyAudio() {
+function startStrongDummyAudio() {
+    if (dummyAudioInterval) clearInterval(dummyAudioInterval);
+    console.log('🔊 Starting strong dummy audio...');
     try {
-        if (window._dummyAudioRunning) {
-            console.log('🔊 Dummy audio already running');
-            return;
+        if (!window._strongAudioCtx) {
+            window._strongAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = window._strongAudioCtx.createOscillator();
+            const gain = window._strongAudioCtx.createGain();
+            gain.gain.value = 0;
+            oscillator.connect(gain);
+            gain.connect(window._strongAudioCtx.destination);
+            oscillator.start(0);
+            window._strongOscillator = oscillator;
         }
-        
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        
-        gainNode.gain.value = 0;
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.start(0);
-        
-        window._dummyAudioContext = audioCtx;
-        window._dummyAudioRunning = true;
-        window._dummyOscillator = oscillator;
-        
-        console.log('🔊 Permanent dummy audio started! (will run forever)');
-        
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume().then(() => {
-                console.log('🔊 Audio context resumed');
-            });
+    } catch (e) {
+        console.warn('⚠️ Audio context gagal:', e);
+    }
+    dummyAudioInterval = setInterval(() => {
+        if (window._strongAudioCtx && window._strongAudioCtx.state === 'suspended') {
+            window._strongAudioCtx.resume().catch(() => {});
         }
-        
-        return audioCtx;
-    } catch (error) {
-        console.warn('⚠️ Gagal start dummy audio:', error);
-        return null;
-    }
-}
-
-function ensureDummyAudioRunning() {
-    if (!window._dummyAudioRunning) {
-        startPermanentDummyAudio();
-    }
-    if (window._dummyAudioContext && window._dummyAudioContext.state === 'suspended') {
-        window._dummyAudioContext.resume().catch(() => {});
-    }
-}
-
-// ============================================================
-// 🔥 USER INTERACTION
-// ============================================================
-function setupUserInteraction() {
-    const events = ['click', 'touchstart', 'keydown', 'scroll'];
-    events.forEach(event => {
-        document.addEventListener(event, function handler() {
-            if (!userInteracted) {
-                userInteracted = true;
-                window._userInteracted = true;
-                console.log('👤 User interaction detected!');
-                
-                const video = document.querySelector(`#video-player-${currentVideoSlide}`);
-                if (video) {
-                    video.muted = false;
-                    video.volume = 0.5;
-                    video.play().catch(() => {});
-                    console.log('🔊 Video unmuted after user interaction');
-                }
-                
-                events.forEach(e => document.removeEventListener(e, handler));
-            }
-        }, { once: true });
+    }, 5000);
+    document.addEventListener('click', () => {
+        if (window._strongAudioCtx && window._strongAudioCtx.state === 'suspended') {
+            window._strongAudioCtx.resume().catch(() => {});
+        }
     });
 }
 
-// ============================================================
-// 🔥 WAKE LOCK
-// ============================================================
-async function requestWakeLock() {
+async function requestStrongWakeLock() {
     try {
-        if (document.visibilityState !== 'visible') {
-            console.log('⏸️ Halaman tidak terlihat, skip Wake Lock');
-            return;
-        }
-        
         if ('wakeLock' in navigator) {
+            if (wakeLock) { try { wakeLock.release(); } catch(e) {} }
             wakeLock = await navigator.wakeLock.request('screen');
             console.log('🔒 Wake Lock acquired');
             wakeLock.addEventListener('release', () => {
-                console.log('🔓 Wake Lock released');
+                console.log('🔓 Wake Lock released, reacquiring...');
+                setTimeout(requestStrongWakeLock, 1000);
             });
         }
     } catch (err) {
-        console.log('⚠️ Wake Lock not available:', err.message || err);
+        console.log('⚠️ Wake Lock failed, retrying...');
+        setTimeout(requestStrongWakeLock, 5000);
     }
 }
 
-function releaseWakeLock() {
-    if (wakeLock) {
-        try {
-            wakeLock.release();
-            wakeLock = null;
-            console.log('🔓 Wake Lock released manually');
-        } catch(e) {
-            console.log('⚠️ Release error:', e.message);
-        }
-    }
-}
-
-// ============================================================
-// 🔥 KEEP ALIVE - FIXED (TANPA video.load())
-// ============================================================
-function startKeepAlive() {
-    if (keepAliveInterval) {
-        clearInterval(keepAliveInterval);
-    }
-    
-    console.log('🔄 Starting keep-alive (every 3s)...');
-    
+function startAggressiveKeepAlive() {
+    if (keepAliveInterval) clearInterval(keepAliveInterval);
+    console.log('🔄 Aggressive keep-alive: every 2 seconds');
     keepAliveInterval = setInterval(() => {
         const video = document.querySelector(`#video-player-${currentVideoSlide}`);
         if (!video) return;
-        
         if (video.paused && !video.ended && video.readyState > 0) {
-            console.log('⚡ Video detected paused, restarting...');
+            console.log('⚡ Video paused, restarting...');
+            try {
+                video.muted = true;
+                video.volume = 0;
+                const playPromise = video.play();
+                if (playPromise) {
+                    playPromise.catch(() => {
+                        video.load();
+                        setTimeout(() => {
+                            video.muted = true;
+                            video.play().catch(() => {});
+                        }, 200);
+                    });
+                }
+            } catch (e) {
+                video.load();
+                setTimeout(() => {
+                    video.muted = true;
+                    video.play().catch(() => {});
+                }, 300);
+            }
+        }
+        if (video.readyState < 2 && !video.paused) {
+            console.log('⚡ Video buffering too long, reload...');
+            video.load();
+            setTimeout(() => {
+                video.muted = true;
+                video.play().catch(() => {});
+            }, 300);
+        }
+    }, 2000);
+}
+
+function startVideoRecoverySystem() {
+    console.log('🔄 Video recovery system active (no page refresh!)');
+    setInterval(() => {
+        const video = document.querySelector(`#video-player-${currentVideoSlide}`);
+        if (!video) return;
+        if (video.paused && !video.ended) {
+            console.log('⚡ Video recovery triggered...');
             video.muted = true;
             video.volume = 0;
-            // 🔥 HAPUS video.load() - INI PENYEBAB ABORT ERROR!
-            // video.load(); // ← JANGAN PAKAI INI!
-            setTimeout(() => {
+            const play = () => {
                 video.play()
-                    .then(() => console.log('✅ Video restarted from keep-alive'))
+                    .then(() => {
+                        console.log('✅ Video recovered!');
+                        if (window._userInteracted) {
+                            video.muted = false;
+                            video.volume = 0.5;
+                        }
+                    })
                     .catch(err => {
                         if (err.name === 'AbortError') {
                             console.log('⏭️ AbortError ignored');
                             return;
                         }
-                        console.warn('⚠️ Keep-alive play error:', err);
+                        console.warn('⚠️ Recovery failed, reloading...');
+                        video.load();
+                        setTimeout(() => {
+                            video.muted = true;
+                            video.play().catch(() => {});
+                        }, 300);
                     });
-            }, 200);
+            };
+            setTimeout(play, 200);
         }
-    }, 3000);
-}
-
-function stopKeepAlive() {
-    if (keepAliveInterval) {
-        clearInterval(keepAliveInterval);
-        keepAliveInterval = null;
-        console.log('⏹️ Keep-alive stopped');
-    }
-}
-
-// ============================================================
-// 🔥 PROTECT VIDEO FROM POWER SAVING
-// ============================================================
-function protectVideoFromPowerSaving() {
-    const video = document.querySelector(`#video-player-${currentVideoSlide}`);
-    if (!video) return;
-    
-    ensureDummyAudioRunning();
-    
-    video.muted = true;
-    video.volume = 0;
-    video.playsInline = true;
-    video.setAttribute('webkit-playsinline', 'true');
-    video.setAttribute('x5-playsinline', 'true');
-    video.preload = 'metadata';
-    
-    if (userInteracted || window._userInteracted) {
-        video.muted = false;
-        video.volume = 0.5;
-        console.log('🔊 Video unmuted (user already interacted)');
-    }
-    
-    video.addEventListener('pause', function onPause() {
-        if (this.paused && !this.ended && this.readyState > 0) {
-            console.log('⚡ Video paused (probably power saving), restarting...');
-            this.muted = true;
-            this.volume = 0;
-            // 🔥 JANGAN PAKAI video.load()!
+    }, 5000);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            console.log('👁️ Tab active, checking video...');
             setTimeout(() => {
-                this.play().catch(() => {});
-            }, 100);
+                const video = document.querySelector(`#video-player-${currentVideoSlide}`);
+                if (video && video.paused && !video.ended) {
+                    video.muted = true;
+                    video.volume = 0;
+                    video.play().catch(() => {});
+                }
+            }, 500);
         }
-    }, { passive: true });
-    
-    console.log('🛡️ Video protected from power saving!');
+    });
 }
 
-// ============================================================
-// 🔥 SAVE VIDEO STATE
-// ============================================================
 function saveVideoState() {
     const video = document.querySelector(`#video-player-${currentVideoSlide}`);
     if (!video) return null;
-    
     return {
         currentTime: video.currentTime || 0,
         paused: video.paused,
@@ -988,24 +1225,17 @@ function saveVideoState() {
     };
 }
 
-// ============================================================
-// 🔥 RESTORE VIDEO STATE
-// ============================================================
 function restoreVideoState(state) {
     if (!state) return;
-    
     const video = document.querySelector(`#video-player-${currentVideoSlide}`);
     if (!video) return;
-    
     if (video.src !== state.src) {
         console.log('🔄 Video source changed, cannot restore state');
         return;
     }
-    
     video.currentTime = Math.min(state.currentTime, video.duration || 0);
     video.muted = state.muted !== undefined ? state.muted : true;
     video.volume = state.volume !== undefined ? state.volume : 0;
-    
     if (!state.paused && !state.ended) {
         setTimeout(() => {
             video.play().catch(e => {
@@ -1019,75 +1249,35 @@ function restoreVideoState(state) {
             });
         }, 200);
     }
-    
     console.log(`🔄 Video state restored: time=${state.currentTime}, paused=${state.paused}`);
 }
 
-// ============================================================
-// 🔥 UNMUTE VIDEO
-// ============================================================
-function unmuteVideo() {
-    userInteracted = true;
-    window._userInteracted = true;
-    const video = document.querySelector(`#video-player-${currentVideoSlide}`);
-    if (video) {
-        video.muted = false;
-        video.volume = 0.5;
-        video.play()
-            .then(() => {
-                console.log('🔊 Video unmuted!');
-                showToast('🔊 Video unmuted!');
-            })
-            .catch(err => {
-                if (err.name === 'AbortError') {
-                    console.log('⏭️ AbortError ignored');
-                    return;
-                }
-                console.warn('⚠️ Unmute error:', err);
-            });
-    }
-}
-
-// ============================================================
-// 🔥 PLAY CURRENT VIDEO - FIXED (TANPA video.load())
-// ============================================================
 function playCurrentVideo() {
     const videos = document.querySelectorAll('#videoSlides video');
-    
-    if (document.visibilityState === 'visible') {
-        requestWakeLock();
-    }
-    
-    ensureDummyAudioRunning();
-    protectVideoFromPowerSaving();
-    startKeepAlive();
-    
+    if (document.visibilityState === 'visible') requestStrongWakeLock();
+    startStrongDummyAudio();
+    startAggressiveKeepAlive();
     videos.forEach((video, index) => {
         if (index === currentVideoSlide) {
             video.muted = true;
             video.volume = 0;
             video.playsInline = true;
             video.preload = 'metadata';
-
             if (videoData.length === 1) {
                 video.loop = true;
             } else {
                 video.loop = false;
             }
-
             if (!document.contains(video)) {
                 console.warn(`⚠️ Video ${index + 1} sudah tidak ada di DOM, skip play`);
                 return;
             }
-
-            // 🔥 JANGAN PAKAI video.load() DI SINI!
             const playPromise = video.play();
             if (playPromise !== undefined) {
                 playPromise
                     .then(() => {
                         console.log(`✅ Video ${index + 1} play success (muted)`);
                         isVideoPlaying = true;
-                        
                         if (userInteracted || window._userInteracted) {
                             video.muted = false;
                             video.volume = 0.5;
@@ -1099,12 +1289,10 @@ function playCurrentVideo() {
                             console.log(`⏭️ Video ${index + 1} AbortError ignored`);
                             return;
                         }
-                        
                         if (error.message && error.message.includes('paused to save power')) {
                             console.log(`⚠️ Power saving detected, reloading video ${index+1}...`);
-                            // 🔥 PAKAI load() HANYA UNTUK POWER SAVING
                             video.load();
-                            ensureDummyAudioRunning();
+                            startStrongDummyAudio();
                             setTimeout(() => {
                                 video.muted = true;
                                 video.play()
@@ -1134,13 +1322,9 @@ function playCurrentVideo() {
     });
 }
 
-// ============================================================
-// 🔥 RENDER VIDEO SLIDE
-// ============================================================
 function renderVideoSlide() {
     const container = document.getElementById('videoSlides');
     const inds = document.getElementById('videoIndicators');
-
     if (!videoData.length || videoData.every(v => !v)) {
         container.innerHTML = `<div class="video-slide"><div class="slide-empty">
             <svg style="width:36px;height:36px;margin:0 auto 6px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
@@ -1148,12 +1332,9 @@ function renderVideoSlide() {
         inds.innerHTML = '';
         return;
     }
-
     videoDurations = new Array(videoData.length).fill(undefined);
     const isMobileDevice = isMobile();
-
     const videoState = saveVideoState();
-
     container.innerHTML = videoData.map((vid, i) => {
         const isActive = i === currentVideoSlide;
         const shouldLoop = videoData.length === 1;
@@ -1187,24 +1368,18 @@ function renderVideoSlide() {
             </div>
         `;
     }).join('');
-
     inds.innerHTML = videoData.map((_, i) =>
         `<button class="dot-ind${i === currentVideoSlide ? ' active' : ''}" onclick="goToVideoSlide(${i})"></button>`
     ).join('');
-
     setTimeout(() => {
         restoreVideoState(videoState);
         initializeVideoPlayer();
     }, isMobileDevice ? 500 : 300);
 }
 
-// ============================================================
-// INITIALIZE VIDEO PLAYER
-// ============================================================
 function initializeVideoPlayer() {
     const videoElements = document.querySelectorAll('#videoSlides video');
     const isMobileDevice = isMobile();
-    
     videoElements.forEach((video, index) => {
         if (isMobileDevice) {
             video.muted = true;
@@ -1214,74 +1389,24 @@ function initializeVideoPlayer() {
             video.setAttribute('x5-playsinline', 'true');
             video.setAttribute('x5-video-player-type', 'h5');
         }
-        
         video.muted = true;
         video.volume = 0;
         video.preload = 'metadata';
-        
         if (videoData.length === 1) {
             video.loop = true;
         } else {
             video.loop = false;
         }
-        
         if (video.readyState >= 1 && video.duration && video.duration > 0) {
             handleVideoMetadata(index, video.duration);
         }
     });
-    
-    protectVideoFromPowerSaving();
-    if (document.visibilityState === 'visible') {
-        requestWakeLock();
-    }
-    
+    if (document.visibilityState === 'visible') requestStrongWakeLock();
     setTimeout(() => {
         playCurrentVideo();
     }, isMobileDevice ? 500 : 100);
 }
 
-// ============================================================
-// 🔥 VIDEO HEALTH CHECK
-// ============================================================
-function startVideoHealthCheck() {
-    stopVideoHealthCheck();
-    videoCheckInterval = setInterval(() => {
-        const videos = document.querySelectorAll('#videoSlides video');
-        let needRestart = false;
-        
-        videos.forEach((video, index) => {
-            if (index === currentVideoSlide) {
-                if (!document.contains(video)) {
-                    console.log(`⚠️ Video ${index + 1} hilang dari DOM, reload...`);
-                    needRestart = true;
-                    return;
-                }
-                
-                if (video.paused && !video.ended && video.readyState > 0 && isVideoPlaying) {
-                    console.log(`⚠️ Video ${index + 1} terdeteksi berhenti, restart...`);
-                    needRestart = true;
-                }
-            }
-        });
-        
-        if (needRestart) {
-            setTimeout(() => {
-                playCurrentVideo();
-            }, 200);
-        }
-    }, 3000);
-}
-
-function stopVideoHealthCheck() {
-    if (videoCheckInterval) {
-        clearInterval(videoCheckInterval);
-        videoCheckInterval = null;
-    }
-}
-
-// ============================================================
-// VIDEO HANDLERS - DENGAN AbortError HANDLING
-// ============================================================
 function onVideoPause(index) {
     if (index === currentVideoSlide) {
         console.log(`⏸️ Video ${index + 1} pause`);
@@ -1311,7 +1436,6 @@ function onVideoWaiting(index) {
         setTimeout(() => {
             const video = document.querySelector(`#video-player-${index}`);
             if (video && video.readyState < 2) {
-                // 🔥 JANGAN PAKAI video.load() DI SINI!
                 setTimeout(() => {
                     video.muted = true;
                     video.volume = 0;
@@ -1371,7 +1495,6 @@ function handleVideoError(index) {
         if (index === currentVideoSlide) {
             const video = document.querySelector(`#video-player-${index}`);
             if (video && document.contains(video)) {
-                // 🔥 JANGAN PAKAI video.load()!
                 video.muted = true;
                 video.volume = 0;
                 video.play().catch(e => {
@@ -1468,80 +1591,19 @@ function pauseVideo() {
     const videos = document.querySelectorAll('#videoSlides video');
     videos.forEach(video => video.pause());
     isVideoPlaying = false;
-    stopKeepAlive();
-    releaseWakeLock();
+    if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+        keepAliveInterval = null;
+    }
+    if (wakeLock) {
+        try { wakeLock.release(); wakeLock = null; } catch(e) {}
+    }
     stopVideoAutoSlide();
     showToast('⏸️ Video dijeda');
 }
 
-function resumeVideo() {
-    const videos = document.querySelectorAll('#videoSlides video');
-    videos.forEach((video, index) => {
-        if (index === currentVideoSlide) {
-            video.muted = true;
-            video.volume = 0;
-            video.play().catch(e => {
-                if (e.name === 'AbortError') {
-                    console.log('⏭️ AbortError ignored');
-                    return;
-                }
-                if (!e.message.includes('removed')) {
-                    console.log('Play error:', e);
-                }
-            });
-        }
-    });
-    isVideoPlaying = true;
-    protectVideoFromPowerSaving();
-    if (document.visibilityState === 'visible') {
-        requestWakeLock();
-    }
-    startKeepAlive();
-    if (videoData.length > 1) startVideoAutoSlide();
-    showToast('▶️ Video dilanjutkan');
-}
-
-function nextVideo() {
-    if (videoData.length <= 1) {
-        showToast('⚠️ Hanya ada 1 video', true);
-        return;
-    }
-    const nextSlide = (currentVideoSlide + 1) % videoData.length;
-    goToVideoSlide(nextSlide);
-    showToast('▶️ Video ' + (nextSlide + 1));
-}
-
-function prevVideo() {
-    if (videoData.length <= 1) {
-        showToast('⚠️ Hanya ada 1 video', true);
-        return;
-    }
-    const prevSlide = (currentVideoSlide - 1 + videoData.length) % videoData.length;
-    goToVideoSlide(prevSlide);
-    showToast('◀️ Video ' + (prevSlide + 1));
-}
-
-function restartVideo() {
-    const video = document.querySelector(`#video-player-${currentVideoSlide}`);
-    if (video) {
-        video.currentTime = 0;
-        video.muted = true;
-        video.volume = 0;
-        video.play().catch(e => {
-            if (e.name === 'AbortError') {
-                console.log('⏭️ AbortError ignored');
-                return;
-            }
-            if (!e.message.includes('removed')) {
-                console.log('Play error:', e);
-            }
-        });
-        showToast('🔄 Video di-restart');
-    }
-}
-
 // ============================================================
-// SUPABASE - LOAD DATA (DENGAN CACHE)
+// 🔥 LOAD DATA - SMART CACHE
 // ============================================================
 function showLoading() {
     const el = document.getElementById('loadingIndicator');
@@ -1556,19 +1618,46 @@ function hideLoading() {
 async function loadFromSupabase(retryCount = 0) {
     const MAX_RETRY = 3;
     
-    // 🔥 CEK CACHE
-    if (cachedData && Date.now() < cacheExpiry) {
-        console.log('⏭️ Pakai cache data');
+    console.log('🚀 LOAD FROM SUPABASE - START');
+    
+    // 🔥🔥🔥 CEK CACHE DULU 🔥🔥🔥
+    const cachedData = getCachedData();
+    
+    if (cachedData) {
+        console.log('⏭️ PAKAI CACHE (0 request ke cloud)');
+        console.log('📦 Cache size:', JSON.stringify(cachedData).length, 'bytes');
+        console.log('📸 Posters in cache:', cachedData.posterImages?.length || 0);
+        
+        // 🔥 TAMPILKAN POSTER DARI CACHE (INSTANT!)
+        if (cachedData.posterImages && cachedData.posterImages.length > 0) {
+            posterImages = cachedData.posterImages;
+            renderPosterSlide();
+            console.log('📸 Posters restored from cache:', posterImages.length);
+        } else if (cachedData._needPosterFetch) {
+            console.log('📸 Poster not in cache, fetching from Supabase...');
+            setTimeout(() => {
+                fetchPostersFromSupabase();
+            }, 200);
+        }
+        
+        // 🔥 APPLY DATA DARI CACHE
         applyDashboardState(cachedData);
+        updateSyncStatus('synced', 'From cache (0 request)');
+        
+        // 🔥 UPDATE DI BACKGROUND (BIAR TETAP SEGAR)
+        setTimeout(() => {
+            checkVersionInBackground();
+        }, 1000);
+        
         return true;
     }
     
+    // ❌ CACHE KOSONG → AMBIL DARI SUPABASE
+    console.log('❌ CACHE KOSONG, ambil dari Supabase...');
     showLoading();
     
     try {
         updateSyncStatus('syncing', 'Memuat data dari Supabase...');
-        
-        console.log('📡 Fetching from:', supabaseUrl + '/rest/v1/dashboard_data');
         
         const { data, error } = await supabaseClient
             .from('dashboard_data')
@@ -1576,31 +1665,34 @@ async function loadFromSupabase(retryCount = 0) {
             .order('_version', { ascending: false })
             .limit(1);
             
-        if (error) {
-            console.error('❌ Supabase error:', error);
-            throw error;
-        }
+        if (error) throw error;
         
         if (data && data.length > 0) {
             const record = data[0];
             const dashboardData = record.data;
             const version = record._version;
             
-            console.log('✅ Data dari Supabase:', dashboardData);
+            console.log('✅ Data dari Supabase');
             console.log('📊 Version:', version);
-            console.log('🕐 Last updated:', record._last_updated);
             
             currentDataVersion = version;
             
-            // 🔥 SIMPAN CACHE
-            cachedData = dashboardData;
-            cacheExpiry = Date.now() + CACHE_TTL;
+            // 🔥 AMBIL POSTER DARI SUPABASE
+            await fetchPostersFromSupabase();
             
-            applyDashboardState({ 
-                ...dashboardData, 
-                _version: version, 
-                _lastUpdated: record._last_updated 
-            });
+            // 🔥 GABUNGKAN DATA + POSTER
+            const fullData = {
+                ...dashboardData,
+                posterImages: posterImages,
+                _version: version,
+                _lastUpdated: record._last_updated
+            };
+            
+            // 🔥 SIMPAN KE CACHE
+            setCachedData(fullData);
+            savePostersSuper(posterImages);
+            
+            applyDashboardState(fullData);
             
             updateSyncStatus('synced', 'v' + version + ' dari Supabase');
             updateConnectionStatus('connected');
@@ -1627,8 +1719,26 @@ async function loadFromSupabase(retryCount = 0) {
     }
 }
 
+async function checkVersionInBackground() {
+    try {
+        const { data, error } = await supabaseClient
+            .from('dashboard_data')
+            .select('_version')
+            .order('_version', { ascending: false })
+            .limit(1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+            const serverVersion = data[0]._version;
+            if (serverVersion > currentDataVersion) {
+                console.log(`🔄 New version detected: v${serverVersion}`);
+                await forceSync();
+            }
+        }
+    } catch (error) {}
+}
+
 // ============================================================
-// SUPABASE - SAVE DATA
+// 🔥 SAVE DATA - SIMPAN KE CLOUD + UPDATE CACHE
 // ============================================================
 async function saveToSupabase(dashboardData, newVersion = null) {
     if (isSaving) {
@@ -1639,6 +1749,11 @@ async function saveToSupabase(dashboardData, newVersion = null) {
     try {
         isSaving = true;
         updateSyncStatus('syncing', 'Menyimpan ke Supabase...');
+        
+        // 🔥 SAVE POSTER KE CLOUD
+        if (posterImages && posterImages.length > 0) {
+            await savePostersToSupabase(posterImages);
+        }
         
         const { data: latest, error: getError } = await supabaseClient
             .from('dashboard_data')
@@ -1651,17 +1766,20 @@ async function saveToSupabase(dashboardData, newVersion = null) {
         const lastVersion = (latest && latest.length > 0) ? latest[0]._version : 0;
         const finalVersion = newVersion !== null ? newVersion : lastVersion + 1;
         
-        const isDefaultData = !dashboardData._version || dashboardData._version <= 1;
+        const dataToSave = {
+            ...dashboardData,
+            posterImages: undefined,
+        };
+        
+        const isDefaultData = !dataToSave._version || dataToSave._version <= 1;
         
         if (isDefaultData && lastVersion > 0) {
-            console.log('🔄 Data default, akan UPDATE data yang sudah ada...');
-            
             const { error: updateError } = await supabaseClient
                 .from('dashboard_data')
                 .update({
                     _version: lastVersion + 1,
                     _last_updated: new Date().toISOString(),
-                    data: dashboardData
+                    data: dataToSave
                 })
                 .eq('_version', lastVersion);
                 
@@ -1671,38 +1789,37 @@ async function saveToSupabase(dashboardData, newVersion = null) {
             currentDataVersion = lastVersion + 1;
             
             // 🔥 UPDATE CACHE
-            cachedData = dashboardData;
-            cacheExpiry = Date.now() + CACHE_TTL;
+            const fullData = { ...dataToSave, posterImages: posterImages };
+            setCachedData(fullData);
             
             showToast('✅ Data diupdate! (v' + (lastVersion + 1) + ')');
             updateSyncStatus('synced', 'v' + (lastVersion + 1) + ' terupdate');
             return true;
         }
         
-        if (dashboardData._version && dashboardData._version < lastVersion && lastVersion > 0) {
-            console.warn('⚠️ Data lebih lama (v' + dashboardData._version + ' < v' + lastVersion + ')');
+        if (dataToSave._version && dataToSave._version < lastVersion && lastVersion > 0) {
+            console.warn('⚠️ Data lebih lama (v' + dataToSave._version + ' < v' + lastVersion + ')');
             showToast('⚠️ Data lebih baru sudah ada! (v' + lastVersion + ')', true);
             return false;
         }
         
-        const dataToSave = {
+        const saveData = {
             _version: finalVersion,
             _last_updated: new Date().toISOString(),
-            data: dashboardData
+            data: dataToSave
         };
         
         const { error } = await supabaseClient
             .from('dashboard_data')
-            .insert([dataToSave]);
+            .insert([saveData]);
             
         if (error) throw error;
         
         console.log('✅ Data tersimpan! Version:', finalVersion);
         currentDataVersion = finalVersion;
         
-        // 🔥 UPDATE CACHE
-        cachedData = dashboardData;
-        cacheExpiry = Date.now() + CACHE_TTL;
+        const fullData = { ...dataToSave, posterImages: posterImages };
+        setCachedData(fullData);
         
         showToast('✅ Data tersimpan di cloud! (v' + finalVersion + ')');
         updateSyncStatus('synced', 'v' + finalVersion + ' tersimpan');
@@ -1719,9 +1836,6 @@ async function saveToSupabase(dashboardData, newVersion = null) {
     }
 }
 
-// ============================================================
-// SUPABASE - CREATE DEFAULT DATA
-// ============================================================
 async function createDefaultData() {
     console.log('📥 Membuat data default...');
     setDefaultData();
@@ -1733,6 +1847,7 @@ async function createDefaultData() {
             _version: 1, 
             _lastUpdated: new Date().toISOString() 
         });
+        setTimeout(() => fetchPostersFromSupabase(), 300);
     }
     return saved;
 }
@@ -1742,114 +1857,63 @@ async function createDefaultData() {
 // ============================================================
 function setupRealtimeListener() {
     if (window.supabaseChannel) {
-        try {
-            supabaseClient.removeChannel(window.supabaseChannel);
-        } catch(e) {}
-        console.log('🔴 Channel lama dihapus');
+        try { supabaseClient.removeChannel(window.supabaseChannel); } catch(e) {}
     }
-    
     window.supabaseChannel = supabaseClient
-        .channel('dashboard-changes', {
-            config: {
-                broadcast: { 
-                    ack: true,
-                    self: false 
-                },
-                presence: { 
-                    key: 'dashboard' 
+        .channel('dashboard-changes')
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'dashboard_data'
+        }, (payload) => {
+            console.log('🔄 Real-time event:', payload.eventType);
+            try {
+                const newRecord = payload.new;
+                if (!newRecord) return;
+                const newVersion = newRecord._version;
+                const newData = newRecord.data;
+                if (newVersion > currentDataVersion) {
+                    console.log('✅ Ada update baru dari device lain!');
+                    const videoState = saveVideoState();
+                    currentDataVersion = newVersion;
+                    setCachedData(newData);
+                    applyDashboardState({ ...newData, _version: newVersion, _lastUpdated: newRecord._last_updated });
+                    restoreVideoState(videoState);
+                    renderPosterSlide();
+                    renderAnnouncement();
+                    renderSchedule();
+                    renderRunningCards();
+                    initChart();
+                    setTimeout(() => fetchPostersFromSupabase(), 300);
+                    showToast('🔄 Data diupdate dari device lain! (v' + newVersion + ')');
+                    updateSyncStatus('synced', 'v' + newVersion + ' (realtime)');
+                    updateConnectionStatus('connected');
                 }
+            } catch (error) {
+                console.error('❌ Error dalam listener:', error);
             }
         })
-        .on(
-            'postgres_changes',
-            {
-                event: '*',
-                schema: 'public',
-                table: 'dashboard_data'
-            },
-            (payload) => {
-                console.log('🔄 Real-time event:', payload.eventType);
-                
-                try {
-                    const newRecord = payload.new;
-                    if (!newRecord) return;
-                    
-                    const newVersion = newRecord._version;
-                    const newData = newRecord.data;
-                    
-                    console.log('🔄 Update! Version:', newVersion);
-                    
-                    if (newVersion > currentDataVersion) {
-                        console.log('✅ Ada update baru!');
-                        
-                        const videoState = saveVideoState();
-                        
-                        currentDataVersion = newVersion;
-                        
-                        // 🔥 UPDATE CACHE
-                        cachedData = newData;
-                        cacheExpiry = Date.now() + CACHE_TTL;
-                        
-                        applyDashboardState({ 
-                            ...newData, 
-                            _version: newVersion, 
-                            _lastUpdated: newRecord._last_updated 
-                        });
-                        
-                        restoreVideoState(videoState);
-                        
-                        renderPosterSlide();
-                        renderAnnouncement();
-                        renderSchedule();
-                        renderRunningCards();
-                        initChart();
-                        
-                        showToast('🔄 Data diupdate! (v' + newVersion + ')');
-                        updateSyncStatus('synced', 'v' + newVersion);
-                        updateConnectionStatus('connected');
-                    }
-                } catch (error) {
-                    console.error('❌ Error dalam listener:', error);
-                }
-            }
-        )
         .subscribe((status) => {
             console.log('📡 Realtime status:', status);
-            
             if (status === 'SUBSCRIBED') {
                 console.log('✅ Realtime connected!');
                 updateConnectionStatus('connected');
                 updateSyncStatus('synced', 'Live');
-            } else if (status === 'CHANNEL_ERROR') {
+            } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED') {
                 console.log('❌ Realtime error, reconnecting...');
                 updateConnectionStatus('connecting');
-                updateSyncStatus('error', 'Reconnecting...');
-                setTimeout(() => {
-                    console.log('🔄 Reconnecting realtime...');
-                    setupRealtimeListener();
-                }, 3000);
-            } else if (status === 'CLOSED') {
-                console.log('🔴 Realtime closed, reconnecting...');
-                updateConnectionStatus('disconnected');
-                setTimeout(() => {
-                    setupRealtimeListener();
-                }, 2000);
+                setTimeout(setupRealtimeListener, 3000);
             }
         });
-    
     console.log('🟢 Realtime listener terpasang!');
 }
 
 // ============================================================
-// 🔥 FAST POLLING (30 detik - LEBIH HEMAT)
+// 🔥 POLLING - 5 MENIT (HEMAT EGRESS)
 // ============================================================
-function startFastPolling() {
-    if (pollingInterval) {
-        clearInterval(pollingInterval);
-    }
-    
-    console.log('🔄 Starting fast polling (every 30s)...');
-    
+function startEfficientPolling() {
+    if (pollingInterval) clearInterval(pollingInterval);
+    console.log('🔄 Efficient polling: every 5 minutes');
     pollingInterval = setInterval(async () => {
         try {
             const { data, error } = await supabaseClient
@@ -1857,88 +1921,57 @@ function startFastPolling() {
                 .select('_version')
                 .order('_version', { ascending: false })
                 .limit(1);
-                
             if (error) throw error;
-            
             if (data && data.length > 0) {
                 const serverVersion = data[0]._version;
-                
                 if (serverVersion > currentDataVersion) {
-                    console.log(`🔄 Polling: New version ${serverVersion} (current: ${currentDataVersion})`);
-                    
+                    console.log(`🔄 Polling: New version ${serverVersion}`);
                     const videoState = saveVideoState();
-                    
                     const { data: fullData, error: fullError } = await supabaseClient
                         .from('dashboard_data')
                         .select('*')
                         .eq('_version', serverVersion)
                         .limit(1);
-                        
                     if (fullError) throw fullError;
-                    
                     if (fullData && fullData.length > 0) {
                         const record = fullData[0];
                         currentDataVersion = serverVersion;
-                        
-                        // 🔥 UPDATE CACHE
-                        cachedData = record.data;
-                        cacheExpiry = Date.now() + CACHE_TTL;
-                        
-                        applyDashboardState({ 
-                            ...record.data, 
-                            _version: serverVersion, 
-                            _lastUpdated: record._last_updated 
-                        });
-                        
+                        setCachedData(record.data);
+                        applyDashboardState({ ...record.data, _version: serverVersion, _lastUpdated: record._last_updated });
                         restoreVideoState(videoState);
-                        
                         renderPosterSlide();
                         renderAnnouncement();
                         renderSchedule();
                         renderRunningCards();
                         initChart();
-                        
-                        showToast('🔄 Data updated! (v' + serverVersion + ')');
+                        setTimeout(() => fetchPostersFromSupabase(), 300);
+                        showToast('🔄 Update detected! (v' + serverVersion + ')');
                         updateSyncStatus('synced', 'v' + serverVersion);
                         updateConnectionStatus('connected');
                     }
                 }
             }
-        } catch (error) {
-            // Silent fail
-        }
-    }, 30000); // ← 30 DETIK
+        } catch (error) {}
+    }, 300000);
 }
 
-// ============================================================
-// 🔥 HEARTBEAT (30 detik)
-// ============================================================
 function startRealtimeHeartbeat() {
-    if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
-    }
-    
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
     heartbeatInterval = setInterval(() => {
         if (window.supabaseChannel) {
             try {
                 const status = window.supabaseChannel.state;
                 if (status === 'subscribed') {
-                    window.supabaseChannel.send({
-                        type: 'broadcast',
-                        event: 'ping',
-                        payload: { timestamp: Date.now() }
-                    });
+                    window.supabaseChannel.send({ type: 'broadcast', event: 'ping', payload: { timestamp: Date.now() } });
                     updateConnectionStatus('connected');
                 } else if (status === 'errored' || status === 'closed') {
                     console.log('🔄 Channel bermasalah, reconnect...');
                     updateConnectionStatus('connecting');
                     setupRealtimeListener();
                 }
-            } catch (e) {
-                console.warn('⚠️ Heartbeat error:', e);
-            }
+            } catch (e) {}
         }
-    }, 30000); // ← 30 DETIK
+    }, 30000);
 }
 
 // ============================================================
@@ -1947,47 +1980,28 @@ function startRealtimeHeartbeat() {
 async function forceSync() {
     showToast('🔄 Syncing...');
     updateSyncStatus('syncing', 'Manual sync...');
-    
     try {
         const { data, error } = await supabaseClient
             .from('dashboard_data')
             .select('*')
             .order('_version', { ascending: false })
             .limit(1);
-            
         if (error) throw error;
-        
         if (data && data.length > 0) {
             const record = data[0];
             const version = record._version;
-            
-            console.log('🔄 FORCE SYNC - Version:', version);
-            
             if (version > currentDataVersion) {
-                console.log('✅ New version detected!');
-                
                 const videoState = saveVideoState();
-                
                 currentDataVersion = version;
-                
-                // 🔥 UPDATE CACHE
-                cachedData = record.data;
-                cacheExpiry = Date.now() + CACHE_TTL;
-                
-                applyDashboardState({ 
-                    ...record.data, 
-                    _version: version, 
-                    _lastUpdated: record._last_updated 
-                });
-                
+                setCachedData(record.data);
+                applyDashboardState({ ...record.data, _version: version, _lastUpdated: record._last_updated });
                 restoreVideoState(videoState);
-                
                 renderPosterSlide();
                 renderAnnouncement();
                 renderSchedule();
                 renderRunningCards();
                 initChart();
-                
+                setTimeout(() => fetchPostersFromSupabase(), 300);
                 showToast('✅ Synced! (v' + version + ')');
                 updateSyncStatus('synced', 'v' + version);
                 updateConnectionStatus('connected');
@@ -2011,40 +2025,23 @@ async function forceSync() {
 // ============================================================
 async function checkSupabaseData() {
     try {
-        console.log('🔍 Mengecek data di Supabase...');
         const { data, error } = await supabaseClient
             .from('dashboard_data')
             .select('*')
             .order('_version', { ascending: false })
             .limit(10);
-            
         if (error) throw error;
-        
-        console.log('📊 DATA DI SUPABASE:');
-        console.log('📦 Total records:', data.length);
-        
-        if (data.length > 0) {
-            const latest = data[0];
-            console.log('📊 Version terbaru:', latest._version);
-            console.log('🕐 Last updated:', latest._last_updated);
-            console.log('📹 Videos:', latest.data?.videoData || []);
-            console.log('📸 Posters:', latest.data?.posterImages?.length || 0);
-            
-            const msg = `✅ Data di Supabase:\n\n` +
-                       `📊 Total records: ${data.length}\n` +
-                       `📊 Version terbaru: ${latest._version}\n` +
-                       `🕐 Last updated: ${latest._last_updated}\n` +
-                       `📹 Jumlah video: ${latest.data?.videoData?.length || 0}\n` +
-                       `📸 Jumlah poster: ${latest.data?.posterImages?.length || 0}\n\n` +
-                       `📹 Video list: ${JSON.stringify(latest.data?.videoData || [])}`;
-            alert(msg);
-        } else {
-            alert('⚠️ Tidak ada data di Supabase');
-        }
+        const { data: posterData } = await supabaseClient.from('posters').select('count');
+        const msg = `✅ Data di Supabase:\n\n` +
+                   `📊 Total records: ${data.length}\n` +
+                   `📊 Version terbaru: ${data[0]?._version || 0}\n` +
+                   `🕐 Last updated: ${data[0]?._last_updated || '-'}\n` +
+                   `📹 Jumlah video: ${data[0]?.data?.videoData?.length || 0}\n` +
+                   `📸 Jumlah poster: ${posterData?.length || 0}`;
+        alert(msg);
         return data;
     } catch (error) {
-        console.error('❌ Error checking Supabase:', error);
-        alert('❌ Gagal cek data di Supabase!\n\nError: ' + error.message);
+        alert('❌ Gagal cek data!\n\nError: ' + error.message);
         return null;
     }
 }
@@ -2053,136 +2050,74 @@ async function checkSupabaseData() {
 // SUPABASE - FORCE RESET
 // ============================================================
 async function forceResetSupabase() {
-    if (!confirm('⚠️ Yakin ingin mereset data di Supabase?\n\n- Semua data akan dihapus\n- Dashboard akan reload dengan data default\n\nIni hanya perlu dilakukan 1 KALI jika ada masalah data.')) {
-        return;
-    }
-    
+    if (!confirm('⚠️ Yakin ingin mereset data di Supabase?')) return;
     try {
         showToast('🔄 Mereset data Supabase...');
-        updateSyncStatus('syncing', 'Resetting...');
-        
-        const { error } = await supabaseClient
-            .from('dashboard_data')
-            .delete()
-            .neq('id', 0);
-            
-        if (error) throw error;
-        
-        console.log('✅ Data lama dihapus');
+        await supabaseClient.from('dashboard_data').delete().neq('id', 0);
+        await supabaseClient.from('posters').delete().neq('id', 0);
         currentDataVersion = 0;
-        cachedData = null;
-        
+        clearCache();
         setDefaultData();
         const data = collectDashboardState();
         await saveToSupabase(data, 1);
-        
         renderVideoSlide();
         renderPosterSlide();
         renderAnnouncement();
         renderSchedule();
         renderRunningCards();
         initChart();
-        
         showToast('✅ Data direset! (v1)');
-        updateSyncStatus('synced', 'Reset selesai - v1');
-        
-        setTimeout(() => { location.reload(); }, 2000);
+        setTimeout(() => location.reload(), 2000);
     } catch (error) {
-        console.error('❌ Reset error:', error);
         showToast('❌ Gagal reset!', true);
-        updateSyncStatus('error', 'Reset gagal');
     }
 }
 
-// ============================================================
-// SUPABASE - FIX AUTO-SAVE
-// ============================================================
 async function fixAutoSaveSupabase() {
     try {
-        console.log('🔥 FIX AUTO-SAVE - Memulai...');
-        
         for (let i = 0; i < 9999; i++) {
             try { clearInterval(i); } catch(e) {}
             try { clearTimeout(i); } catch(e) {}
         }
-        console.log('✅ Semua interval dihentikan!');
-        
         const { data, error } = await supabaseClient
             .from('dashboard_data')
             .select('*')
             .order('_version', { ascending: false })
             .limit(1);
-            
         if (error) throw error;
-        
-        if (!data || data.length === 0) {
-            alert('⚠️ Tidak ada data!');
-            return;
-        }
-        
+        if (!data || data.length === 0) { alert('⚠️ Tidak ada data!'); return; }
         const latest = data[0];
         const dashboardData = latest.data;
         const newVersion = latest._version + 1;
-        
         dashboardData.videoData = [];
-        
-        console.log('📊 Data Version:', newVersion);
-        console.log('📹 Video:', dashboardData.videoData);
-        
         await saveToSupabase(dashboardData, newVersion);
-        
-        alert('✅ FIX BERHASIL!\n\n' +
-              '✅ Auto-save dimatikan\n' +
-              '✅ Data version ' + newVersion + ' tersimpan\n' +
-              '✅ Video default dihapus dari database\n\n' +
-              'Sekarang data akan PERMANEN!');
-        
+        alert('✅ FIX BERHASIL!\n\nData version ' + newVersion + ' tersimpan');
         location.reload();
-        
     } catch (error) {
-        console.error('❌ Error:', error);
         alert('❌ Gagal: ' + error.message);
     }
 }
 
 // ============================================================
-// APPLY DATA
+// 🔥 APPLY DATA
 // ============================================================
 function applyDashboardState(data) {
     if (!data) return;
-
+    
+    console.log('🔄 APPLY DATA - Version:', data._version || 0);
+    
     const oldVideoData = videoData;
     const newVideoData = data.videoData || [];
     const videoChanged = JSON.stringify(oldVideoData) !== JSON.stringify(newVideoData);
-
     currentDataVersion = data._version || 0;
-    console.log('🔄 APPLY DATA - Version:', currentDataVersion);
-    console.log('🕐 Last updated:', data._lastUpdated);
-    console.log('📹 Video changed:', videoChanged);
-
-    if (data.posterImages !== undefined) {
-        posterImages = data.posterImages || [];
-        console.log('📸 Poster images:', posterImages.length);
-    }
-
-    if (data.scheduleData !== undefined) {
-        scheduleData = data.scheduleData || [];
-        console.log('📋 Schedule data:', scheduleData.length);
-    }
-
-    if (data.announcementData !== undefined) {
-        announcementData = data.announcementData || {};
-        console.log('📢 Announcement:', announcementData.title);
-    }
-
+    
+    if (data.scheduleData !== undefined) scheduleData = data.scheduleData || [];
+    if (data.announcementData !== undefined) announcementData = data.announcementData || {};
     if (data.videoData !== undefined) {
         const savedLinks = data.videoData || [];
         const validLinks = savedLinks.filter(link => link && link.trim() !== '');
         videoData = [...validLinks, ...DEFAULT_VIDEOS];
-        console.log('📦 VIDEO dari Supabase (disimpan):', validLinks);
-        console.log('📦 Total video (dengan default untuk tampilan):', videoData.length);
     }
-
     if (data.runningData) {
         ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(id => {
             if (!data.runningData[id]) return;
@@ -2194,7 +2129,6 @@ function applyDashboardState(data) {
             if (elTarget) elTarget.value = data.runningData[id].target || 0;
         });
     }
-
     if (data.chartData) {
         const elMixing = document.getElementById('edit-chart-mixing');
         const elPacking = document.getElementById('edit-chart-packing');
@@ -2203,23 +2137,27 @@ function applyDashboardState(data) {
         if (elPacking) elPacking.value = data.chartData.packing || 97.1;
         if (elOffice) elOffice.value = data.chartData.office || 94.8;
     }
-
+    
+    // 🔥 FORCE SAVE KE CACHE
+    if (data) {
+        setCachedData(data);
+        if (data.posterImages) {
+            savePostersSuper(data.posterImages);
+        }
+    }
+    
     renderPosterSlide();
     renderAnnouncement();
     renderSchedule();
     renderRunningCards();
     initChart();
-
     if (videoChanged) {
         console.log('🔄 Video changed, re-rendering...');
         renderVideoSlide();
     } else {
         console.log('⏭️ Video unchanged, skip re-render');
-        setTimeout(() => {
-            playCurrentVideo();
-        }, 100);
+        setTimeout(() => playCurrentVideo(), 100);
     }
-
     lastSyncedData = data;
 }
 
@@ -2236,19 +2174,12 @@ function collectDashboardState() {
             target: document.getElementById(`edit-target-${id}`).value
         };
     });
-
     const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
     const newVideoData = [];
     videoInputs.forEach(input => {
-        if (input.value.trim()) {
-            newVideoData.push(input.value.trim());
-        }
+        if (input.value.trim()) newVideoData.push(input.value.trim());
     });
-
-    console.log('📹 Video yang akan disimpan (hanya dari input):', newVideoData);
-
     return {
-        posterImages,
         videoData: newVideoData,
         scheduleData,
         announcementData,
@@ -2261,9 +2192,6 @@ function collectDashboardState() {
     };
 }
 
-// ============================================================
-// SET DEFAULT DATA
-// ============================================================
 function setDefaultData() {
     const defaults = {
         mocacinno: { name: 'MOCACINNO', value: 95.7, target: 95.0 },
@@ -2311,9 +2239,6 @@ function calculateDiff(id) {
     renderRunningCards();
 }
 
-// ============================================================
-// RUNNING CARDS
-// ============================================================
 function renderRunningCards() {
     const icons = { mocacinno: '🔴', cappuccino: '🔵', gdf: '🟡', granule: '🟢' };
     const cards = ['mocacinno', 'cappuccino', 'gdf', 'granule'];
@@ -2359,7 +2284,7 @@ function updateClock() {
 }
 
 // ============================================================
-// POSTER SLIDE
+// POSTER SLIDE - FILTER BLURRY (HANYA POSTER > 50KB)
 // ============================================================
 function renderPosterSlide() {
     const track = document.getElementById('posterSlides');
@@ -2367,16 +2292,47 @@ function renderPosterSlide() {
     const dateEl = document.getElementById('posterDate');
     const now = new Date();
     dateEl.textContent = `📅 ${now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}`;
-
-    if (!posterImages.length || posterImages.every(i => !i)) {
+    
+    // 🔥🔥🔥 FILTER: HANYA PAKAI POSTER UKURAN > 50 KB 🔥🔥🔥
+    let validPosters = [];
+    if (posterImages && posterImages.length > 0) {
+        validPosters = posterImages.filter(img => {
+            const size = img ? img.length : 0;
+            return img && img.startsWith('data:image') && size > MIN_POSTER_SIZE;
+        });
+        if (validPosters.length !== posterImages.length) {
+            console.log(`📸 Filtered: ${posterImages.length - validPosters.length} small/blurry posters removed`);
+            posterImages = validPosters;
+        }
+    }
+    
+    // 🔥 JIKA POSTER KECIL ATAU KOSONG, AMBIL DARI SUPABASE
+    if (!validPosters || validPosters.length === 0) {
+        console.log('📸 No valid posters (>50KB), fetching from Supabase...');
+        // Tampilkan loading
         track.innerHTML = `<div class="slide"><div class="slide-empty">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-            <p>Belum ada poster</p><p style="font-size:0.5rem;color:#475569;">Upload melalui tombol Edit</p></div></div>`;
+            <div class="spinner" style="width:30px;height:30px;border:3px solid #1e293b;border-top:3px solid #fbbf24;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto;"></div>
+            <p style="margin-top:8px;">Memuat poster...</p>
+        </div></div>`;
         inds.innerHTML = '';
+        
+        // Ambil dari Supabase
+        setTimeout(() => {
+            fetchPostersFromSupabase();
+        }, 100);
         return;
     }
-    track.innerHTML = posterImages.map((img, i) => `<div class="slide" data-index="${i}"><img src="${img}" alt="Poster ${i+1}"></div>`).join('');
-    inds.innerHTML = posterImages.map((_, i) => `<button class="dot-ind${i === currentPosterSlide ? ' active' : ''}" onclick="goToPosterSlide(${i})"></button>`).join('');
+    
+    track.innerHTML = validPosters.map((img, i) => 
+        `<div class="slide" data-index="${i}">
+            <img src="${img}" alt="Poster ${i+1}" loading="lazy" onerror="this.style.display='none'">
+        </div>`
+    ).join('');
+    
+    inds.innerHTML = validPosters.map((_, i) => 
+        `<button class="dot-ind${i === currentPosterSlide ? ' active' : ''}" onclick="goToPosterSlide(${i})"></button>`
+    ).join('');
+    
     updatePosterSlidePos();
     startPosterAutoSlide();
 }
@@ -2399,8 +2355,7 @@ function startPosterAutoSlide() {
 }
 
 function stopPosterAutoSlide() {
-    if (posterInterval) { clearInterval(posterInterval);
-        posterInterval = null; }
+    if (posterInterval) { clearInterval(posterInterval); posterInterval = null; }
 }
 
 // ============================================================
@@ -2409,12 +2364,9 @@ function stopPosterAutoSlide() {
 function renderVideoLinkRows() {
     const c = document.getElementById('videoLinkContainer');
     if (!c) return;
-
     const allVideos = videoData || [];
     const linkOnly = allVideos.filter(v => !DEFAULT_VIDEOS.includes(v));
-
     c.innerHTML = '';
-
     if (!linkOnly || linkOnly.length === 0) {
         c.innerHTML = `<div style="color:#64748b;font-size:0.6rem;text-align:center;padding:8px 0;">
             Belum ada link video. Klik "Tambah Link" untuk menambahkan.
@@ -2422,7 +2374,6 @@ function renderVideoLinkRows() {
         </div>`;
         return;
     }
-
     let html = '';
     linkOnly.forEach((link, i) => {
         html += `
@@ -2440,20 +2391,11 @@ function renderVideoLinkRows() {
 function saveVideoLink(index) {
     const input = document.getElementById(`video-link-input-${index}`);
     if (!input) return;
-
     const link = input.value.trim();
-    if (!link) {
-        showToast('⚠️ Masukkan link video terlebih dahulu!', true);
-        return;
-    }
-
+    if (!link) { showToast('⚠️ Masukkan link video terlebih dahulu!', true); return; }
     const existingLinks = videoData.filter(v => !DEFAULT_VIDEOS.includes(v));
-    if (index < existingLinks.length) {
-        existingLinks[index] = link;
-    } else {
-        existingLinks.push(link);
-    }
-
+    if (index < existingLinks.length) { existingLinks[index] = link; } 
+    else { existingLinks.push(link); }
     videoData = [...existingLinks, ...DEFAULT_VIDEOS];
     showToast('✅ Link video berhasil disimpan!');
     renderVideoLinkRows();
@@ -2495,9 +2437,7 @@ function renderPosterUploadRows() {
         </div>`).join('');
 }
 
-function addPosterRow() { posterImages.push('');
-    renderPosterUploadRows();
-    renderPosterSlide(); }
+function addPosterRow() { posterImages.push(''); renderPosterUploadRows(); renderPosterSlide(); }
 
 function removePosterImage(i) {
     posterImages.splice(i, 1);
@@ -2509,13 +2449,45 @@ function removePosterImage(i) {
 function handlePosterFileChange(index, input) {
     const file = input.files[0];
     if (!file) return;
+    
+    console.log('📸 File size:', Math.round(file.size/1024), 'KB');
+    if (file.size < 10) {
+        alert('⚠️ File terlalu kecil (< 10KB), kemungkinan rusak!');
+        return;
+    }
+    
     const reader = new FileReader();
     reader.onload = e => {
-        posterImages[index] = e.target.result;
+        const original = e.target.result;
+        
+        if (!original.startsWith('data:image')) {
+            alert('⚠️ File bukan gambar yang valid!');
+            return;
+        }
+        
+        const size = Math.round(original.length / 1024);
+        console.log('📸 Image size:', size, 'KB');
+        
+        if (size < 50) {
+            console.warn('⚠️ Gambar kecil (<50KB), mungkin akan burik');
+        }
+        
+        posterImages[index] = original;
         const p = document.getElementById(`poster-preview-${index}`);
-        if (p) { p.src = e.target.result;
-            p.style.display = 'block'; }
+        if (p) { p.src = original; p.style.display = 'block'; }
         renderPosterSlide();
+        
+        savePostersSuper(posterImages);
+        savePostersToSession(posterImages);
+        
+        const currentData = getCachedData();
+        if (currentData) {
+            currentData.posterImages = posterImages;
+            setCachedData(currentData);
+        }
+        
+        saveData();
+        console.log('✅ Poster uploaded!');
     };
     reader.readAsDataURL(file);
 }
@@ -2527,7 +2499,6 @@ function renderAnnouncement() {
     const timeEl = document.getElementById('announcementTime');
     const now = new Date();
     timeEl.textContent = `🕐 Update: ${now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })} ${now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`;
-
     let body = announcementData.body || '';
     body = body.replace(/\n/g, '<br>');
     body = body.replace(/⚠️/g, '<span class="hl-red">⚠️</span>');
@@ -2535,7 +2506,6 @@ function renderAnnouncement() {
     body = body.replace(/FRAUD/g, '<span class="hl-red">FRAUD</span>');
     body = body.replace(/integritas/gi, '<span class="hl">integritas</span>');
     body = body.replace(/jujur/gi, '<span class="hl-green">jujur</span>');
-
     document.getElementById('announcementContent').innerHTML = `
         <div class="ann-title">${announcementData.title || 'Pengumuman'}</div>
         <div class="ann-sub">${announcementData.subtitle || ''}</div>
@@ -2595,22 +2565,14 @@ function syncPanelFromDashboard() {
 // ============================================================
 function saveData() {
     console.log('💾 Menyimpan data ke Supabase...');
-
     const videoInputs = document.querySelectorAll('#videoLinkContainer input[type="text"]');
     const newVideoData = [];
     videoInputs.forEach(input => {
-        if (input.value.trim()) {
-            newVideoData.push(input.value.trim());
-        }
+        if (input.value.trim()) newVideoData.push(input.value.trim());
     });
-
     const savedVideoData = [...newVideoData];
-    console.log('📹 Video yang akan disimpan ke database:', savedVideoData);
-
     videoData = [...savedVideoData, ...DEFAULT_VIDEOS];
-
     ['mocacinno', 'cappuccino', 'gdf', 'granule'].forEach(calculateDiff);
-
     if (chartInstance) {
         chartInstance.data.datasets[0].data = [
             parseFloat(document.getElementById('edit-chart-mixing').value) || 0,
@@ -2619,28 +2581,22 @@ function saveData() {
         ];
         chartInstance.update();
     }
-
     announcementData.title = document.getElementById('edit-announce-title').value || 'Pengumuman';
     announcementData.subtitle = document.getElementById('edit-announce-subtitle').value || '';
     announcementData.body = document.getElementById('edit-announce-body').value || '';
     renderAnnouncement();
-
     scheduleData = [1, 2, 3].map(n => ({
         date: document.getElementById(`edit-schedule-date${n}`).value || '',
         activity: document.getElementById(`edit-schedule-activity${n}`).value || '',
         status: document.getElementById(`edit-schedule-status${n}`).value
     }));
     renderSchedule();
-
     renderPosterSlide();
     renderVideoSlide();
     renderRunningCards();
-
     const dashboardData = collectDashboardState();
     dashboardData.videoData = savedVideoData;
-
     updateSyncStatus('syncing', 'Menyimpan...');
-
     saveToSupabase(dashboardData).then(success => {
         if (success) {
             document.querySelectorAll('.poster-wrapper,.announcement-wrapper,#video-card,#schedule-card').forEach(el => {
@@ -2662,11 +2618,8 @@ function initChart() {
     const canvas = document.getElementById('chart5R');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    if (chartInstance) { chartInstance.destroy();
-        chartInstance = null; }
-
+    if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
     const isLarge = window.innerWidth >= 1920;
-
     chartInstance = new Chart(ctx, {
         type: 'bar',
         data: {
@@ -2705,57 +2658,24 @@ function initChart() {
                 }
             },
             scales: {
-                y: {
-                    min: 75,
-                    max: 105,
-                    grid: { color: 'rgba(255,255,255,0.06)' },
-                    ticks: {
-                        color: '#64748b',
-                        stepSize: isLarge ? 5 : 5,
-                        font: { size: isLarge ? 14 : 9, weight: 'bold' }
-                    }
-                },
-                x: {
-                    grid: { display: false },
-                    ticks: {
-                        color: '#94a3b8',
-                        font: { size: isLarge ? 16 : 10, weight: 'bold' }
-                    }
-                }
+                y: { min: 75, max: 105, grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#64748b', stepSize: isLarge ? 5 : 5, font: { size: isLarge ? 14 : 9, weight: 'bold' } } },
+                x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: isLarge ? 16 : 10, weight: 'bold' } } }
             }
         },
         plugins: [ChartDataLabels]
     });
 }
 
-// ============================================================
-// TOGGLE VIDEO AUTO SLIDE
-// ============================================================
 function toggleVideoAutoSlide() {
-    if (videoTimeout) {
-        stopVideoAutoSlide();
-        showToast('⏸️ Auto-slide video dijeda');
-        return false;
-    } else {
-        startVideoAutoSlide();
-        showToast('▶️ Auto-slide video dilanjutkan');
-        return true;
-    }
+    if (videoTimeout) { stopVideoAutoSlide(); showToast('⏸️ Auto-slide video dijeda'); return false; } 
+    else { startVideoAutoSlide(); showToast('▶️ Auto-slide video dilanjutkan'); return true; }
 }
 
-// ============================================================
-// VISIBILITY HANDLER
-// ============================================================
 function setupVisibilityHandler() {
     document.addEventListener('visibilitychange', function() {
         if (!document.hidden) {
             console.log('🔄 Tab aktif kembali, restart video & sync...');
-            setTimeout(() => {
-                forceSync();
-                playCurrentVideo();
-            }, 500);
-        } else {
-            console.log('⏸️ Tab tidak aktif, keep-alive tetap berjalan...');
+            setTimeout(() => { forceSync(); playCurrentVideo(); }, 500);
         }
     });
 }
@@ -2763,10 +2683,7 @@ function setupVisibilityHandler() {
 function setupNetworkHandler() {
     window.addEventListener('online', function() {
         console.log('🔄 Koneksi kembali online, restart video & sync...');
-        setTimeout(() => {
-            forceSync();
-            playCurrentVideo();
-        }, 500);
+        setTimeout(() => { forceSync(); playCurrentVideo(); }, 500);
         updateConnectionStatus('connecting');
     });
     window.addEventListener('offline', function() {
@@ -2776,12 +2693,44 @@ function setupNetworkHandler() {
 }
 
 // ============================================================
-// INIT
+// 🔥 INIT
 // ============================================================
 window.addEventListener('load', async () => {
-    console.log('🚀 Dashboard - Mode: Realtime + Polling 5s + Cache 1m');
-    console.log('📱 Device:', navigator.userAgent);
+    console.log('🚀 DASHBOARD LOADING...');
+    
+    // 🔥🔥🔥 RESTORE POSTER DARI SUPER CACHE 🔥🔥🔥
+    const superPosters = localStorage.getItem('super_poster_cache');
+    if (superPosters) {
+        try {
+            const posters = JSON.parse(superPosters);
+            if (posters && posters.length > 0) {
+                posterImages = posters;
+                renderPosterSlide();
+                console.log('📸 Posters restored from super cache on load:', posterImages.length);
+            }
+        } catch (e) {}
+    }
+    
+    // 🔥 CEK CACHE
+    const cachedData = getCachedData();
+    if (cachedData) {
+        console.log('📦 Cache found on load!');
+        if (cachedData.posterImages && cachedData.posterImages.length > 0) {
+            posterImages = cachedData.posterImages;
+            renderPosterSlide();
+            console.log('📸 Posters restored from cache on load:', posterImages.length);
+        }
+        applyDashboardState(cachedData);
+        console.log('✅ Dashboard loaded from cache!');
+    }
+    
+    console.log('🚀 Dashboard - SMART CACHE ACTIVE');
+    console.log('✅ Realtime update: ACTIVE');
+    console.log('✅ Auto refresh: 30 minutes');
+    console.log('✅ Filter blurry posters: >50KB only');
 
+    restorePosterAfterRefresh();
+    
     setDefaultData();
     renderVideoSlide();
     renderPosterSlide();
@@ -2802,64 +2751,50 @@ window.addEventListener('load', async () => {
         if (dataLoaded) {
             console.log('✅ Data loaded! Version:', currentDataVersion);
             updateConnectionStatus('connected');
-        } else {
-            console.log('⚠️ Gagal memuat data, pakai default');
         }
     } catch (error) {
         console.error('❌ Error load data:', error);
         showToast('⚠️ Gagal load data', true);
     }
 
-    // 🔥 SETUP REALTIME
     setupRealtimeListener();
-
-    // 🔥 START FAST POLLING (5 detik)
-    startFastPolling();
-
-    // 🔥 START HEARTBEAT (30 detik)
+    startEfficientPolling();
     startRealtimeHeartbeat();
 
-    // 🔥 SETUP USER INTERACTION
-    setupUserInteraction();
-
-    // 🔥 START PERMANENT DUMMY AUDIO
-    startPermanentDummyAudio();
-
-    // 🔥 START VISIBILITY HANDLER
-    setupVisibilityHandler();
-    setupNetworkHandler();
-    startVideoHealthCheck();
-
-    // 🔥 CEK DUMMY AUDIO SETIAP 5 DETIK
-    setInterval(() => {
-        if (window._dummyAudioContext) {
-            if (window._dummyAudioContext.state === 'suspended') {
-                console.log('🔊 Audio context suspended, resuming...');
-                window._dummyAudioContext.resume().catch(() => {});
-            }
-        } else {
-            startPermanentDummyAudio();
-        }
-    }, 5000);
-
-    // 🔥 VISIBILITY UNTUK WAKE LOCK
-    document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'visible') {
-            requestWakeLock();
-        } else {
-            releaseWakeLock();
-        }
-    });
-
     document.addEventListener('click', function firstClick() {
+        userInteracted = true;
+        window._userInteracted = true;
         playCurrentVideo();
         document.removeEventListener('click', firstClick);
     }, { once: true });
 
     document.addEventListener('touchstart', function firstTouch() {
+        userInteracted = true;
+        window._userInteracted = true;
         playCurrentVideo();
         document.removeEventListener('touchstart', firstTouch);
     }, { once: true });
+
+    startStrongDummyAudio();
+    startAggressiveKeepAlive();
+    startVideoRecoverySystem();
+    requestStrongWakeLock();
+
+    setupVisibilityHandler();
+    setupNetworkHandler();
+
+    // 🔥 START AUTO REFRESH (30 MENIT)
+    startAutoRefresh();
+
+    setInterval(() => {
+        if (window._strongAudioCtx && window._strongAudioCtx.state === 'suspended') {
+            window._strongAudioCtx.resume().catch(() => {});
+        }
+    }, 5000);
+
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') requestStrongWakeLock();
+    });
 
     const posterContainer = document.getElementById('posterSlideContainer');
     const videoContainer = document.getElementById('videoSlideContainer');
@@ -2878,42 +2813,18 @@ window.addEventListener('load', async () => {
         resizeTimer = setTimeout(initChart, 250);
     });
 
-    // 🔄 AUTO-REFRESH HALAMAN SETIAP 15 MENIT
-    function startAutoRefresh() {
-        const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 menit
-        
-        console.log('🔄 Auto-refresh akan berjalan setiap 15 menit');
-        
-        setInterval(() => {
-            console.log('🔄 Auto-refresh halaman...');
-            location.reload();
-        }, REFRESH_INTERVAL);
-    }
-    
-    startAutoRefresh();
-
     console.log('✅ Dashboard siap!');
-    console.log('💡 Data auto-sync setiap 5 detik (polling) + realtime');
-    console.log('💡 Video state akan dipertahankan saat sync');
-    console.log('💡 Video dilindungi dari Power Saving (dummy audio + wake lock + keep-alive)');
-    console.log('💡 Status koneksi terlihat di header (● Live/Offline)');
-    console.log('💡 Gunakan tombol "Sync" untuk manual sync');
-    console.log('💡 Shortcut keyboard dinonaktifkan agar tidak mengganggu input');
-    console.log('💡 Cache data 1 menit untuk mengurangi request');
+    console.log('💡 Poster > 50KB → Cache (TAJAM)');
+    console.log('💡 Poster < 50KB → DIBUANG (dianggap burik)');
+    console.log('💡 Auto refresh 30 menit - POSTER TETAP ADA!');
+    console.log('💡 Realtime update antar device ACTIVE');
 });
 
-// ============================================================
-// 🔥 KEYBOARD SHORTCUTS - HANYA ESC YANG DIPERTAHANKAN
-// ============================================================
 document.addEventListener('keydown', e => {
-    // Hanya ESC untuk tutup edit panel
     if (e.key === 'Escape') {
         const p = document.getElementById('editPanel');
-        if (p.classList.contains('active')) {
-            toggleEditPanel();
-        }
+        if (p.classList.contains('active')) toggleEditPanel();
     }
-    // Semua shortcut lainnya dihapus agar tidak mengganggu input
 });
 
 // ============================================================
@@ -2921,8 +2832,6 @@ document.addEventListener('keydown', e => {
 // ============================================================
 window.renderVideoSlide = renderVideoSlide;
 window.goToVideoSlide = goToVideoSlide;
-window.startVideoAutoSlide = startVideoAutoSlide;
-window.stopVideoAutoSlide = stopVideoAutoSlide;
 window.toggleVideoAutoSlide = toggleVideoAutoSlide;
 window.renderPosterSlide = renderPosterSlide;
 window.goToPosterSlide = goToPosterSlide;
@@ -2946,20 +2855,14 @@ window.checkSupabaseData = checkSupabaseData;
 window.fixAutoSaveSupabase = fixAutoSaveSupabase;
 window.collectDashboardState = collectDashboardState;
 window.pauseVideo = pauseVideo;
-window.resumeVideo = resumeVideo;
-window.nextVideo = nextVideo;
-window.prevVideo = prevVideo;
-window.restartVideo = restartVideo;
 window.forceSync = forceSync;
-window.unmuteVideo = unmuteVideo;
 
-console.log('🔥 Dashboard siap!');
-console.log('📌 Gunakan checkSupabaseData() untuk cek data di Supabase');
-console.log('📌 ESC untuk tutup edit panel');
-console.log('📌 Video dilindungi dari Power Saving!');
-console.log('📌 Klik tombol Play/Unmute untuk suara');
-console.log('📌 Shortcut keyboard dinonaktifkan untuk kenyamanan input');
-console.log('📌 Cache aktif 1 menit untuk mengurangi request');
+console.log('🔥 FINAL VERSION LOADED!');
+console.log('✅ Smart cache with blurry filter active!');
+console.log('✅ Poster > 50KB → Cache (TAJAM)');
+console.log('✅ Poster < 50KB → Rejected (dianggap burik)');
+console.log('✅ Auto refresh 30 menit - POSTER TETAP ADA!');
+console.log('✅ Cache: localStorage + sessionStorage + cookie');
 </script>
 
 </body>
