@@ -656,7 +656,7 @@
 </div>
 
 <!-- ============================================================
-     JAVASCRIPT - FINAL FIX BLURRY POSTER
+     JAVASCRIPT - FINAL FIX (POSTER ORIGINAL, NO COMPRESS)
      ============================================================ -->
 <script>
 // ============================================================
@@ -676,29 +676,40 @@ const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey, {
 console.log('✅ Supabase initialized');
 
 // ============================================================
-// 🔥 CACHE SYSTEM - SMART CACHE + FILTER BLURRY
+// 🔥 FUNGSI KOMPRES GAMBAR (JARANG DIPAKAI)
+// ============================================================
+function compressImageSync(base64, maxWidth = 200, quality = 0.5) {
+    try {
+        const img = new Image();
+        img.src = base64;
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const ratio = maxWidth / img.width;
+        canvas.width = maxWidth;
+        canvas.height = img.height * ratio;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', quality);
+    } catch (e) {
+        return base64;
+    }
+}
+
+// ============================================================
+// 🔥 CACHE SYSTEM - SIMPAN ORIGINAL (TANPA KOMPRESI BERLEBIH)
 // ============================================================
 const CACHE_KEY = 'dashboard_data_cache';
 const CACHE_EXPIRY_KEY = 'dashboard_cache_expiry';
 const CACHE_TTL = 604800000; // 7 HARI
-const MIN_POSTER_SIZE = 50000; // 50 KB - POSTER DI BAWAH INI DIANGGAP BURIK
 
-// 🔥 SET CACHE - FILTER POSTER YANG BURIK
 function setCachedData(data) {
     try {
-        console.log('💾 SAVING TO CACHE (filtering blurry)...');
+        console.log('💾 SAVING TO CACHE...');
         
-        // 🔥 HANYA SIMPAN POSTER > 50 KB (BIAR TIDAK BURIK)
+        // 🔥 SIMPAN ORIGINAL (TANPA KOMPRESI)
         let posters = [];
         if (data.posterImages && data.posterImages.length > 0) {
-            posters = data.posterImages.filter(img => {
-                const size = img ? img.length : 0;
-                return size > MIN_POSTER_SIZE;
-            });
-            console.log('📸 Posters saved (filtered >50KB):', posters.length);
-            if (data.posterImages.length !== posters.length) {
-                console.log(`⚠️ ${data.posterImages.length - posters.length} blurry posters filtered out`);
-            }
+            posters = data.posterImages;
+            console.log('📸 Posters saved (original):', posters.length);
         }
         
         const cleanData = {
@@ -711,17 +722,16 @@ function setCachedData(data) {
             _version: data._version || 0,
             _lastUpdated: data._lastUpdated || new Date().toISOString(),
             _posterSaved: posters.length > 0,
-            _posterCount: data.posterImages ? data.posterImages.length : 0,
         };
         
-        localStorage.setItem(CACHE_KEY, JSON.stringify(cleanData));
-        localStorage.setItem(CACHE_EXPIRY_KEY, String(Date.now() + CACHE_TTL));
-        console.log('✅ Cache saved! Size:', Math.round(JSON.stringify(cleanData).length/1024), 'KB');
-        console.log('📸 Posters in cache:', posters.length);
-    } catch (e) {
-        console.warn('⚠️ Gagal simpan cache:', e);
-        try {
-            const cleanData = {
+        // CEK UKURAN
+        const size = JSON.stringify(cleanData).length;
+        console.log('📦 Data size:', Math.round(size/1024), 'KB');
+        
+        // 🔥 JIKA TERLALU BESAR, SIMPAN TANPA POSTER DI MAIN CACHE
+        if (size > 4000000) {
+            console.warn('⚠️ Data terlalu besar, simpan tanpa poster di main cache');
+            const cleanDataNoPoster = {
                 videoData: data.videoData || [],
                 runningData: data.runningData || {},
                 chartData: data.chartData || {},
@@ -732,16 +742,39 @@ function setCachedData(data) {
                 _posterCount: data.posterImages ? data.posterImages.length : 0,
                 _posterSaved: false,
             };
-            localStorage.setItem(CACHE_KEY, JSON.stringify(cleanData));
+            localStorage.setItem(CACHE_KEY, JSON.stringify(cleanDataNoPoster));
             localStorage.setItem(CACHE_EXPIRY_KEY, String(Date.now() + CACHE_TTL));
-            console.log('✅ Fallback: Cache saved without posters');
+            // 🔥 TAPI TETAP SIMPAN DI SUPER CACHE
+            if (posters.length > 0) {
+                localStorage.setItem('super_poster_cache', JSON.stringify(posters));
+            }
+            return;
+        }
+        
+        localStorage.setItem(CACHE_KEY, JSON.stringify(cleanData));
+        localStorage.setItem(CACHE_EXPIRY_KEY, String(Date.now() + CACHE_TTL));
+        console.log('✅ Cache saved! Size:', Math.round(JSON.stringify(cleanData).length/1024), 'KB');
+        console.log('📸 Posters in cache:', posters.length);
+        
+        // 🔥 JUGA SIMPAN KE SUPER CACHE
+        if (posters.length > 0) {
+            localStorage.setItem('super_poster_cache', JSON.stringify(posters));
+            console.log('✅ Super cache updated with posters');
+        }
+    } catch (e) {
+        console.warn('⚠️ Gagal simpan cache:', e);
+        // 🔥 FALLBACK: Simpan ke super cache saja
+        try {
+            if (data.posterImages && data.posterImages.length > 0) {
+                localStorage.setItem('super_poster_cache', JSON.stringify(data.posterImages));
+                console.log('✅ Fallback: Saved to super cache');
+            }
         } catch (e2) {
-            console.error('❌ Gagal simpan cache:', e2);
+            console.error('❌ Gagal simpan fallback:', e2);
         }
     }
 }
 
-// 🔥 GET CACHE
 function getCachedData() {
     try {
         const data = localStorage.getItem(CACHE_KEY);
@@ -752,6 +785,24 @@ function getCachedData() {
         
         if (data) {
             const parsed = JSON.parse(data);
+            
+            // 🔥 JIKA POSTER KOSONG DI CACHE, COBA DARI SUPER CACHE
+            if (!parsed.posterImages || parsed.posterImages.length === 0) {
+                const superPosters = localStorage.getItem('super_poster_cache');
+                if (superPosters) {
+                    try {
+                        const posters = JSON.parse(superPosters);
+                        if (posters && posters.length > 0) {
+                            parsed.posterImages = posters;
+                            parsed._posterSaved = true;
+                            console.log('📸 Posters restored from super cache:', posters.length);
+                            // 🔥 UPDATE CACHE UTAMA
+                            localStorage.setItem(CACHE_KEY, JSON.stringify(parsed));
+                        }
+                    } catch (e) {}
+                }
+            }
+            
             console.log('✅ Cache found! Size:', Math.round(data.length/1024), 'KB');
             console.log('📸 Posters in cache:', parsed.posterImages?.length || 0);
             console.log('📸 Poster saved flag:', parsed._posterSaved ? '✅' : '❌');
@@ -774,24 +825,42 @@ function getCachedData() {
 function clearCache() {
     localStorage.removeItem(CACHE_KEY);
     localStorage.removeItem(CACHE_EXPIRY_KEY);
-    sessionStorage.removeItem('posters_cache');
     localStorage.removeItem('super_poster_cache');
+    localStorage.removeItem('posters_cache_backup');
     console.log('🗑️ Cache cleared');
 }
 
 // ============================================================
-// 🔥 SUPER CACHE
+// 🔥 SUPER CACHE - SIMPAN ORIGINAL
 // ============================================================
 function savePostersSuper(posterData) {
     try {
-        // 🔥 FILTER BURIK SEBELUM SIMPAN
-        const valid = posterData.filter(img => img && img.length > MIN_POSTER_SIZE);
-        localStorage.setItem('super_poster_cache', JSON.stringify(valid));
-        sessionStorage.setItem('super_poster_cache', JSON.stringify(valid));
-        document.cookie = `super_poster_cache=${encodeURIComponent(JSON.stringify(valid))}; max-age=604800; path=/`;
-        console.log('✅ Poster saved to 3 places!', valid.length, 'valid');
+        // 🔥 SIMPAN ORIGINAL (TANPA KOMPRESI BERLEBIH)
+        let dataToSave = posterData || [];
+        
+        // Cek ukuran
+        const size = JSON.stringify(dataToSave).length;
+        console.log('📦 Poster data size:', Math.round(size/1024), 'KB');
+        
+        // 🔥 HANYA KOMPRES JIKA > 2 MB (BIAR GAK RUSAK)
+        if (size > 2000000) {
+            console.log('📸 Data terlalu besar, kompres ringan...');
+            dataToSave = posterData.map(img => {
+                if (img && img.length > 300000) {
+                    return compressImageSync(img, 300, 0.7);
+                }
+                return img;
+            });
+        }
+        
+        localStorage.setItem('super_poster_cache', JSON.stringify(dataToSave));
+        document.cookie = `super_poster_cache=${encodeURIComponent(JSON.stringify(dataToSave))}; max-age=604800; path=/`;
+        console.log('✅ Poster saved!', dataToSave.length, 'posters, size:', Math.round(JSON.stringify(dataToSave).length/1024), 'KB');
     } catch (e) {
         console.warn('⚠️ Failed to save poster:', e);
+        try {
+            localStorage.setItem('super_poster_cache', '[]');
+        } catch (e2) {}
     }
 }
 
@@ -802,17 +871,6 @@ function getPostersSuper() {
             const parsed = JSON.parse(data);
             if (parsed && parsed.length > 0) {
                 console.log('📸 Posters from localStorage:', parsed.length);
-                return parsed;
-            }
-        }
-    } catch (e) {}
-    
-    try {
-        const data = sessionStorage.getItem('super_poster_cache');
-        if (data) {
-            const parsed = JSON.parse(data);
-            if (parsed && parsed.length > 0) {
-                console.log('📸 Posters from sessionStorage:', parsed.length);
                 return parsed;
             }
         }
@@ -839,7 +897,7 @@ function updatePosterCache(posters) {
     posterImages = posters;
     savePostersSuper(posters);
     renderPosterSlide();
-    console.log('✅ Posters updated, saved to 3 places!');
+    console.log('✅ Posters updated, saved to 2 places!');
 }
 
 function loadPosterCache() {
@@ -854,18 +912,14 @@ function loadPosterCache() {
     return false;
 }
 
+// 🔥 MATIKAN SESSIONSTORAGE (BENAR-BENAR MATI)
 function savePostersToSession(posters) {
-    try {
-        const valid = posters.filter(img => img && img.length > MIN_POSTER_SIZE);
-        sessionStorage.setItem('posters_cache', JSON.stringify(valid));
-        console.log('✅ Posters saved to sessionStorage:', valid.length);
-    } catch (e) {
-        console.warn('⚠️ Failed to save posters to sessionStorage:', e);
-    }
+    console.log('⏭️ sessionStorage disabled to avoid quota error');
+    return;
 }
 
 // ============================================================
-// 🔥 FETCH POSTER DARI SUPABASE - FILTER BURIK
+// 🔥 FETCH POSTER DARI SUPABASE + SIMPAN ORIGINAL
 // ============================================================
 async function fetchPostersFromSupabase() {
     try {
@@ -881,36 +935,28 @@ async function fetchPostersFromSupabase() {
         if (data && data.length > 0) {
             const posters = data.map(row => row.image_data);
             
-            // 🔥 FILTER: HANYA POSTER > 50 KB
-            const validPosters = posters.filter(img => img && img.length > MIN_POSTER_SIZE);
-            console.log(`📸 Valid posters: ${validPosters.length} (${posters.length - validPosters.length} blurry filtered)`);
+            console.log(`📸 Total posters from Supabase: ${posters.length}`);
+            posters.forEach((img, i) => {
+                const size = Math.round(img.length / 1024);
+                console.log(`📸 Poster ${i+1}: ${size} KB`);
+            });
             
-            if (validPosters.length === 0) {
-                console.warn('⚠️ No valid posters found (>50KB)');
-                posterImages = [];
-                renderPosterSlide();
-                return [];
-            }
-            
-            posterImages = validPosters;
+            // 🔥 SIMPAN ORIGINAL
+            posterImages = posters;
             renderPosterSlide();
             
-            // 🔥 SIMPAN KE CACHE
-            savePostersSuper(validPosters);
-            savePostersToSession(validPosters);
-            sessionStorage.setItem('pre_refresh_poster', JSON.stringify(validPosters));
-            sessionStorage.setItem('pre_refresh_time', Date.now().toString());
+            savePostersSuper(posters);
+            savePostersToSession(posters);
             
-            // 🔥 UPDATE CACHE UTAMA
             const currentData = getCachedData();
             if (currentData) {
-                currentData.posterImages = validPosters;
+                currentData.posterImages = posters;
                 currentData._posterSaved = true;
                 setCachedData(currentData);
             }
             
-            console.log('✅ Posters loaded from cloud:', validPosters.length);
-            return validPosters;
+            console.log('✅ Posters loaded from cloud:', posters.length);
+            return posters;
         } else {
             console.log('📸 No posters found in cloud');
             posterImages = [];
@@ -954,33 +1000,11 @@ function startAutoRefresh() {
             savePostersSuper(posterImages);
             console.log('📸 Posters saved before refresh:', posterImages.length);
         }
-        try {
-            sessionStorage.setItem('pre_refresh_poster', JSON.stringify(posterImages));
-            sessionStorage.setItem('pre_refresh_time', Date.now().toString());
-        } catch (e) {}
         location.reload();
     }, REFRESH_INTERVAL);
 }
 
 function restorePosterAfterRefresh() {
-    try {
-        const saved = sessionStorage.getItem('pre_refresh_poster');
-        const time = parseInt(sessionStorage.getItem('pre_refresh_time') || '0');
-        if (saved && (Date.now() - time < 300000)) {
-            const posters = JSON.parse(saved);
-            // 🔥 FILTER BURIK
-            const valid = posters.filter(img => img && img.length > MIN_POSTER_SIZE);
-            if (valid && valid.length > 0) {
-                posterImages = valid;
-                savePostersSuper(valid);
-                renderPosterSlide();
-                console.log('📸 Posters restored after refresh:', posterImages.length);
-                sessionStorage.removeItem('pre_refresh_poster');
-                sessionStorage.removeItem('pre_refresh_time');
-                return true;
-            }
-        }
-    } catch (e) {}
     return false;
 }
 
@@ -1620,7 +1644,6 @@ async function loadFromSupabase(retryCount = 0) {
     
     console.log('🚀 LOAD FROM SUPABASE - START');
     
-    // 🔥🔥🔥 CEK CACHE DULU 🔥🔥🔥
     const cachedData = getCachedData();
     
     if (cachedData) {
@@ -1628,7 +1651,6 @@ async function loadFromSupabase(retryCount = 0) {
         console.log('📦 Cache size:', JSON.stringify(cachedData).length, 'bytes');
         console.log('📸 Posters in cache:', cachedData.posterImages?.length || 0);
         
-        // 🔥 TAMPILKAN POSTER DARI CACHE (INSTANT!)
         if (cachedData.posterImages && cachedData.posterImages.length > 0) {
             posterImages = cachedData.posterImages;
             renderPosterSlide();
@@ -1640,11 +1662,9 @@ async function loadFromSupabase(retryCount = 0) {
             }, 200);
         }
         
-        // 🔥 APPLY DATA DARI CACHE
         applyDashboardState(cachedData);
         updateSyncStatus('synced', 'From cache (0 request)');
         
-        // 🔥 UPDATE DI BACKGROUND (BIAR TETAP SEGAR)
         setTimeout(() => {
             checkVersionInBackground();
         }, 1000);
@@ -1652,7 +1672,6 @@ async function loadFromSupabase(retryCount = 0) {
         return true;
     }
     
-    // ❌ CACHE KOSONG → AMBIL DARI SUPABASE
     console.log('❌ CACHE KOSONG, ambil dari Supabase...');
     showLoading();
     
@@ -1677,10 +1696,8 @@ async function loadFromSupabase(retryCount = 0) {
             
             currentDataVersion = version;
             
-            // 🔥 AMBIL POSTER DARI SUPABASE
             await fetchPostersFromSupabase();
             
-            // 🔥 GABUNGKAN DATA + POSTER
             const fullData = {
                 ...dashboardData,
                 posterImages: posterImages,
@@ -1688,7 +1705,6 @@ async function loadFromSupabase(retryCount = 0) {
                 _lastUpdated: record._last_updated
             };
             
-            // 🔥 SIMPAN KE CACHE
             setCachedData(fullData);
             savePostersSuper(posterImages);
             
@@ -1738,7 +1754,7 @@ async function checkVersionInBackground() {
 }
 
 // ============================================================
-// 🔥 SAVE DATA - SIMPAN KE CLOUD + UPDATE CACHE
+// 🔥 SAVE DATA
 // ============================================================
 async function saveToSupabase(dashboardData, newVersion = null) {
     if (isSaving) {
@@ -1750,7 +1766,6 @@ async function saveToSupabase(dashboardData, newVersion = null) {
         isSaving = true;
         updateSyncStatus('syncing', 'Menyimpan ke Supabase...');
         
-        // 🔥 SAVE POSTER KE CLOUD
         if (posterImages && posterImages.length > 0) {
             await savePostersToSupabase(posterImages);
         }
@@ -1788,7 +1803,6 @@ async function saveToSupabase(dashboardData, newVersion = null) {
             console.log('✅ Data diupdate! Version:', lastVersion + 1);
             currentDataVersion = lastVersion + 1;
             
-            // 🔥 UPDATE CACHE
             const fullData = { ...dataToSave, posterImages: posterImages };
             setCachedData(fullData);
             
@@ -1909,11 +1923,11 @@ function setupRealtimeListener() {
 }
 
 // ============================================================
-// 🔥 POLLING - 5 MENIT (HEMAT EGRESS)
+// 🔥 POLLING - 10 MENIT
 // ============================================================
 function startEfficientPolling() {
     if (pollingInterval) clearInterval(pollingInterval);
-    console.log('🔄 Efficient polling: every 5 minutes');
+    console.log('🔄 Efficient polling: every 10 minutes');
     pollingInterval = setInterval(async () => {
         try {
             const { data, error } = await supabaseClient
@@ -1952,7 +1966,7 @@ function startEfficientPolling() {
                 }
             }
         } catch (error) {}
-    }, 300000);
+    }, 600000);
 }
 
 function startRealtimeHeartbeat() {
@@ -2138,7 +2152,6 @@ function applyDashboardState(data) {
         if (elOffice) elOffice.value = data.chartData.office || 94.8;
     }
     
-    // 🔥 FORCE SAVE KE CACHE
     if (data) {
         setCachedData(data);
         if (data.posterImages) {
@@ -2284,7 +2297,7 @@ function updateClock() {
 }
 
 // ============================================================
-// POSTER SLIDE - FILTER BLURRY (HANYA POSTER > 50KB)
+// POSTER SLIDE - TAMPILKAN POSTER
 // ============================================================
 function renderPosterSlide() {
     const track = document.getElementById('posterSlides');
@@ -2293,33 +2306,58 @@ function renderPosterSlide() {
     const now = new Date();
     dateEl.textContent = `📅 ${now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}`;
     
-    // 🔥🔥🔥 FILTER: HANYA PAKAI POSTER UKURAN > 50 KB 🔥🔥🔥
-    let validPosters = [];
-    if (posterImages && posterImages.length > 0) {
-        validPosters = posterImages.filter(img => {
-            const size = img ? img.length : 0;
-            return img && img.startsWith('data:image') && size > MIN_POSTER_SIZE;
-        });
-        if (validPosters.length !== posterImages.length) {
-            console.log(`📸 Filtered: ${posterImages.length - validPosters.length} small/blurry posters removed`);
-            posterImages = validPosters;
+    // 🔥🔥🔥 CEK POSTER 🔥🔥🔥
+    if (!posterImages || posterImages.length === 0) {
+        // 1. Coba dari super cache
+        const superPosters = localStorage.getItem('super_poster_cache');
+        if (superPosters) {
+            try {
+                const posters = JSON.parse(superPosters);
+                if (posters && posters.length > 0) {
+                    posterImages = posters;
+                    console.log('📸 Posters restored from super cache:', posterImages.length);
+                }
+            } catch (e) {}
+        }
+        
+        // 2. Coba dari cache utama
+        if (!posterImages || posterImages.length === 0) {
+            const cacheData = localStorage.getItem('dashboard_data_cache');
+            if (cacheData) {
+                try {
+                    const parsed = JSON.parse(cacheData);
+                    if (parsed.posterImages && parsed.posterImages.length > 0) {
+                        posterImages = parsed.posterImages;
+                        console.log('📸 Posters restored from main cache:', posterImages.length);
+                    }
+                } catch (e) {}
+            }
+        }
+        
+        // 3. Ambil dari Supabase (background)
+        if (!posterImages || posterImages.length === 0) {
+            console.log('📸 No posters in cache, fetching from Supabase...');
+            setTimeout(() => {
+                fetchPostersFromSupabase();
+            }, 200);
+            track.innerHTML = `<div class="slide"><div class="slide-empty">
+                <div class="spinner" style="width:30px;height:30px;border:3px solid #1e293b;border-top:3px solid #fbbf24;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto;"></div>
+                <p style="margin-top:8px;">Memuat poster...</p>
+            </div></div>`;
+            inds.innerHTML = '';
+            return;
         }
     }
     
-    // 🔥 JIKA POSTER KECIL ATAU KOSONG, AMBIL DARI SUPABASE
-    if (!validPosters || validPosters.length === 0) {
-        console.log('📸 No valid posters (>50KB), fetching from Supabase...');
-        // Tampilkan loading
+    // 🔥 FILTER POSTER VALID
+    const validPosters = posterImages.filter(img => img && img.startsWith('data:image') && img.length > 1000);
+    
+    if (validPosters.length === 0) {
         track.innerHTML = `<div class="slide"><div class="slide-empty">
-            <div class="spinner" style="width:30px;height:30px;border:3px solid #1e293b;border-top:3px solid #fbbf24;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto;"></div>
-            <p style="margin-top:8px;">Memuat poster...</p>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            <p>Poster tidak valid</p>
         </div></div>`;
         inds.innerHTML = '';
-        
-        // Ambil dari Supabase
-        setTimeout(() => {
-            fetchPostersFromSupabase();
-        }, 100);
         return;
     }
     
@@ -2467,10 +2505,6 @@ function handlePosterFileChange(index, input) {
         
         const size = Math.round(original.length / 1024);
         console.log('📸 Image size:', size, 'KB');
-        
-        if (size < 50) {
-            console.warn('⚠️ Gambar kecil (<50KB), mungkin akan burik');
-        }
         
         posterImages[index] = original;
         const p = document.getElementById(`poster-preview-${index}`);
@@ -2724,13 +2758,12 @@ window.addEventListener('load', async () => {
         console.log('✅ Dashboard loaded from cache!');
     }
     
-    console.log('🚀 Dashboard - SMART CACHE ACTIVE');
+    console.log('🚀 Dashboard - FIXED POSTER CACHE');
     console.log('✅ Realtime update: ACTIVE');
     console.log('✅ Auto refresh: 30 minutes');
-    console.log('✅ Filter blurry posters: >50KB only');
+    console.log('✅ sessionStorage DISABLED (fix quota error)');
+    console.log('✅ Posters original (no compression)');
 
-    restorePosterAfterRefresh();
-    
     setDefaultData();
     renderVideoSlide();
     renderPosterSlide();
@@ -2783,7 +2816,6 @@ window.addEventListener('load', async () => {
     setupVisibilityHandler();
     setupNetworkHandler();
 
-    // 🔥 START AUTO REFRESH (30 MENIT)
     startAutoRefresh();
 
     setInterval(() => {
@@ -2814,9 +2846,9 @@ window.addEventListener('load', async () => {
     });
 
     console.log('✅ Dashboard siap!');
-    console.log('💡 Poster > 50KB → Cache (TAJAM)');
-    console.log('💡 Poster < 50KB → DIBUANG (dianggap burik)');
+    console.log('💡 Posters saved in original quality');
     console.log('💡 Auto refresh 30 menit - POSTER TETAP ADA!');
+    console.log('💡 sessionStorage DISABLED - QUOTA ERROR FIXED!');
     console.log('💡 Realtime update antar device ACTIVE');
 });
 
@@ -2858,11 +2890,11 @@ window.pauseVideo = pauseVideo;
 window.forceSync = forceSync;
 
 console.log('🔥 FINAL VERSION LOADED!');
-console.log('✅ Smart cache with blurry filter active!');
-console.log('✅ Poster > 50KB → Cache (TAJAM)');
-console.log('✅ Poster < 50KB → Rejected (dianggap burik)');
+console.log('✅ Cache with original posters!');
+console.log('✅ Posters saved in original quality');
 console.log('✅ Auto refresh 30 menit - POSTER TETAP ADA!');
-console.log('✅ Cache: localStorage + sessionStorage + cookie');
+console.log('✅ Cache: localStorage + cookie (sessionStorage DISABLED)');
+console.log('✅ QUOTAEXCEEDEDERROR FIXED!');
 </script>
 
 </body>
